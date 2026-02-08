@@ -1,0 +1,35 @@
+[project]
+name = "yieldprediction"
+version = "0.1.0"
+description = ""
+authors = [
+    { name = "Daniel Smit", email = "daniel.mff@gmail.com" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "requests (>=2.32.5,<3.0.0)",
+    "numpy (>=2.4.2,<3.0.0)",
+]
+
+[dependency-groups]
+stubs = [
+    "types-requests (>=2.32.4.20260107,<3.0.0.0)",
+    "types-pyyaml (>=6.0.12.20250915,<7.0.0.0)"
+]
+dev = [
+    "black (>=26.1.0,<27.0.0)",
+    "mypy (>=1.19.1,<2.0.0)",
+    "ruff (>=0.15.0,<0.16.0)"
+]
+notebook = [
+    "notebook (>=7.5.3,<8.0.0)",
+    "ipykernel (>=7.2.0,<8.0.0)"
+]
+
+[tool.ruff.lint]
+select = ["ALL"]  # Enable all 800+ rules
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
