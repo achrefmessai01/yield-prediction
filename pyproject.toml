@@ -20,7 +20,8 @@ stubs = [
 dev = [
     "black (>=26.1.0,<27.0.0)",
     "mypy (>=1.19.1,<2.0.0)",
-    "ruff (>=0.15.0,<0.16.0)"
+    "ruff (>=0.15.0,<0.16.0)",
+    "matplotlib (>=3.10.9,<4.0.0)"
 ]
 notebook = [
     "notebook (>=7.5.3,<8.0.0)",
@@ -29,6 +30,7 @@ notebook = [
 
 [tool.ruff.lint]
 select = ["ALL"]  # Enable all 800+ rules
+ignore = ["PT009"]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

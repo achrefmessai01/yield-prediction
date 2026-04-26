@@ -2,7 +2,7 @@ import hashlib
 import logging
 from collections.abc import Callable, Iterable
 from dataclasses import InitVar, asdict, dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from http.client import (
     BAD_REQUEST,
     INTERNAL_SERVER_ERROR,
@@ -10,7 +10,7 @@ from http.client import (
     UNPROCESSABLE_ENTITY,
 )
 from io import StringIO
-from typing import TYPE_CHECKING, ClassVar, Final, Literal, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Self, assert_never
 
 import numpy as np
 import requests
@@ -19,9 +19,9 @@ from requests import RequestException, Session
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from gdhprediction.config import GdhPredictionConfig
-from gdhprediction.paths import APP_PATHS, GdhPredictionPaths
+from gdhprediction.config import APP_PATHS, GdhPredictionConfig, GdhPredictionPaths
 from gdhprediction.utils import (
+    DATETIME_UNITS,
     FIRST_YEAR,
     HOURS_PER_YEAR,
     LAST_YEAR,
@@ -30,15 +30,17 @@ from gdhprediction.utils import (
     MISSING_DATA,
     NASA_HOURLY_API,
     PERCENTILES,
+    CacheFormat,
     Communities,
     FieldsHashMxn,
     Formats,
-    HourlyDataDType,
+    HourlyAnnualizedGdhDType,
     NasaDataArray,
     NasaDataDType,
     Parameters,
-    Shift,
     TimeStandards,
+    hourly_cache_dtype,
+    is_datetime_unit,
     is_parameter,
     remove_leap,
 )
@@ -48,6 +50,7 @@ if TYPE_CHECKING:
 
 
 LOGGER: Final = logging.getLogger(__name__)
+LOGGER.addHandler(logging.NullHandler())  # avoid "No handler found" warnings
 
 
 class NasaApiError(Exception):
@@ -93,7 +96,9 @@ class RequestData(FieldsHashMxn):
         object.__setattr__(self, "parameters", ",".join(sorted(parameter_set)))
 
     def _valid_years(
-        self, start_year: int | None, end_year: int | None,
+        self,
+        start_year: int | None,
+        end_year: int | None,
     ) -> tuple[int, int]:
         last_year: int = date.today().year - 1
         start: int = start_year or FIRST_YEAR
@@ -122,24 +127,32 @@ class RequestData(FieldsHashMxn):
 @dataclass(frozen=True, slots=True)
 class CacheManager:
 
-    data_request_hash: InitVar[str]
+    raw_data_hash: str
     config_hash: InitVar[str]
-    cache_hash: str = field(init=False)
+    processed_hash: str = field(init=False)
     _cache_paths: GdhPredictionPaths
 
-    def __post_init__(self, data_request_hash: str, config_hash: str) -> None:
+    def __post_init__(self, config_hash: str) -> None:
         # Collision-free combination
+        data_request_hash = self.raw_data_hash
         concatenated = f"{data_request_hash}_{config_hash}"
-        cache_hash = hashlib.md5(concatenated.encode(encoding="utf-8")).hexdigest()[:8]
-        object.__setattr__(self, "cache_hash", cache_hash)
+        combined = hashlib.md5(concatenated.encode(encoding="utf-8")).hexdigest()[:8]
+        object.__setattr__(self, "processed_hash", combined)
 
-    def check_cache_integrity(self) -> bool:
+    def _hash(self, data_format: CacheFormat) -> str:
+        if data_format == "processed":
+            return self.processed_hash
+        if data_format == "raw":
+            return self.raw_data_hash
+        assert_never(data_format)
+
+    def _check_cache(self, hashkey: str) -> bool:
         """Check if cached data exists for the current request parameters."""
-        cache_file = self._cache_paths.annual_data(self.cache_hash)
+        cache_file = self._cache_paths.climate_data(hashkey)
         exists: bool = cache_file.is_file()
         if exists:
             LOGGER.info("Cache hit: found cached data at %s.", cache_file)
-            checksum_file = self._cache_paths.annual_data_checksum(self.cache_hash)
+            checksum_file = self._cache_paths.climate_data_checksum(hashkey)
             if checksum_file.is_file():
                 LOGGER.debug("Found checksum file at %s.", checksum_file)
                 # verify checksum
@@ -160,31 +173,38 @@ class CacheManager:
             LOGGER.info("Cache miss: no cached data found at %s.", cache_file)
         return exists
 
-    def write_to_cache(self, data_array: NasaDataArray) -> None:
+    def write_to_cache(self, data_array: NasaDataArray, cache_fmt: CacheFormat) -> None:
         """Write current data array to cache with checksum."""
         if data_array is None:
             LOGGER.warning("No data to write to cache.")
             return
-        data_path: Path = self._cache_paths.annual_data(self.cache_hash)
-        checksum_path: Path = self._cache_paths.annual_data_checksum(self.cache_hash)
+        hashkey = self._hash(cache_fmt)
+        data_path: Path = self._cache_paths.climate_data(hashkey)
+        checksum_path: Path = self._cache_paths.climate_data_checksum(hashkey)
         np.save(data_path, data_array)
         checksum = hashlib.sha256(data_path.read_bytes()).hexdigest()
         checksum_path.write_text(checksum)
         LOGGER.info(
-            "Saved data and checksum to cache at %s and %s.", data_path, checksum_path,
+            "Saved %s data and checksum to cache at %s and %s.",
+            cache_fmt,
+            data_path,
+            checksum_path,
         )
 
-    def load_from_cache(self) -> NasaDataArray | None:
+    def load_from_cache(self, data_fmt: CacheFormat) -> NasaDataArray | None:
         """Load cached data into memory if it exists and is uncorrupted."""
-        if self.check_cache_integrity():
-            data_array = np.load(self._cache_paths.annual_data(self.cache_hash))
-            LOGGER.info("Successfully loaded data from cache.")
+        hashkey = self._hash(data_fmt)
+        if self._check_cache(hashkey):
+            data_array = np.load(self._cache_paths.climate_data(hashkey))
+            LOGGER.info("Successfully loaded %s data from cache.", data_fmt)
             return data_array
-        LOGGER.warning("Cannot load from cache: data is missing or corrupted.")
+        LOGGER.warning(
+            "Cannot load from cache: %s data is missing or corrupted.", data_fmt
+        )
         return None
 
 
-class ClimateData:
+class ClimateGdhData:
 
     __slots__ = (
         "_cache_manager",
@@ -192,20 +212,18 @@ class ClimateData:
         "_config",
         "_request_data",
         "data_array",
+        "transform",
     )
 
     # default parameters for NASA API request
     COMMUNITY: ClassVar[Communities] = "ag"
     FORMAT: ClassVar[Formats] = "csv"
     TIME_STANDARD: ClassVar[TimeStandards] = "lst"
-    PARAMETERS: ClassVar[tuple[Parameters, ...]] = ("T2M", "RH2M")
-    MISSING_DATA: Final[Literal[-999]] = -999
-    EXPECTED_COLS: ClassVar[frozenset[str]] = frozenset(
-        {"YEAR", "MO", "DY", "HR"} | set(PARAMETERS),
-    )
+    PARAMETERS: ClassVar[tuple[Parameters, ...]] = ("T2M", "RH2M", "ALLSKY_SFC_SW_DWN")
 
     # instance attributes
     data_array: NasaDataArray | None
+    transform: Callable[[NasaDataArray], npt.NDArray[np.float32]]
     _config: GdhPredictionConfig
     _cache_manager: CacheManager
     _request_data: RequestData
@@ -222,6 +240,7 @@ class ClimateData:
     ) -> None:
         self._request_data = request_data
         self._config = config
+        self.transform = self._config.temperature_transform
         self._cache_manager = CacheManager(
             request_data.compute_hash(),
             config.compute_hash(),
@@ -254,6 +273,80 @@ class ClimateData:
         )
         return cls(request_data, config)
 
+    def get_climate_gdh_data(self) -> NasaDataArray:
+        """Get climate data, using cache if available and valid."""
+        if self.data_array is not None:
+            LOGGER.info("Using in-memory data array.")
+            return self.data_array
+
+        # Try to load processed data from cache
+        cached = self._cache_manager.load_from_cache("processed")
+        if cached is not None:
+            self.data_array = cached
+            return self.data_array
+
+        # Try to load raw data from cache and process it
+        raw_cached = self._cache_manager.load_from_cache("raw")
+        if raw_cached is not None:
+            processed = self._process(raw_cached)
+            self.data_array = processed
+            self._cache_manager.write_to_cache(processed, "processed")
+            return self.data_array
+
+        # If no cache, request from NASA API
+        cdr = ClimateDataRequest(self._request_data)
+        raw_data = cdr.request_nasa_data()
+        self._cache_manager.write_to_cache(raw_data, "raw")
+        processed = self._process(raw_data)
+        self.data_array = processed
+        self._cache_manager.write_to_cache(processed, "processed")
+        return self.data_array
+
+    def forecast_gdh(
+        self, today: date | None = None, forecast: int = 28
+    ) -> NasaDataArray:
+        """Forecast GDH for the next 28 days based on historical data."""
+        _today: date = today or datetime.now(tz=UTC).date()
+        # ensure climate data available
+        data_array: NasaDataArray
+        if self.data_array is None:
+            data_array = self.get_climate_gdh_data()
+        else:
+            data_array = self.data_array
+        # find data between today and 28 days from now
+        today_hour = (_today.timetuple().tm_yday - 1) * 24
+        last_hour = np.mod(today_hour + forecast * 24, HOURS_PER_YEAR)
+        if last_hour > today_hour:
+            forecast_cumgdh = data_array[today_hour:last_hour]
+        else:
+            forecast_cumgdh = np.concatenate(
+                (data_array[today_hour:], data_array[:last_hour])
+            )
+        ghd_cols = [f"CUMGDH_p{q:02d}" for q in PERCENTILES]
+        anchor = data_array[today_hour]
+        forecast_gdh = forecast_cumgdh[ghd_cols].copy()
+        for ghd_col in ghd_cols:
+            forecast_gdh[ghd_col] -= anchor[ghd_col]
+        # rename columns to GDH_pXX
+        forecast_gdh.dtype.names = tuple(f"GDH_p{q:02d}" for q in PERCENTILES)
+        return forecast_gdh
+
+    def _process(self, raw_data: NasaDataArray) -> NasaDataArray:
+        """Process raw NASA data into GDH data format."""
+        inner_t2m = self.transform(raw_data)
+        gdh_base = self._config.gdh_base
+        ghd = np.maximum(0, inner_t2m - gdh_base).round(2)
+        # calculate GDH percentiles across years for each hour
+        gdh_percentiles = np.percentile(ghd, PERCENTILES, axis=1)
+        # create HourlyAnnualizedGdhDType array to hold the results
+        hourly_gdh = np.empty(ghd.shape[0], dtype=HourlyAnnualizedGdhDType)
+        hourly_gdh["MO"] = raw_data["MO"]
+        hourly_gdh["DY"] = raw_data["DY"]
+        hourly_gdh["HR"] = raw_data["HR"]
+        for i, q in enumerate(PERCENTILES):
+            hourly_gdh[f"CUMGDH_p{q:02d}"] = np.cumsum(gdh_percentiles[i])
+        return hourly_gdh
+
     @property
     def request_data(self) -> RequestData:
         return self._request_data
@@ -267,7 +360,7 @@ class ClimateData:
         return self._request_data.longitude
 
     def cache_hash(self) -> str:
-        return self._cache_manager.cache_hash
+        return self._cache_manager.processed_hash
 
     def __repr__(self) -> str:
         return (
@@ -291,8 +384,6 @@ class ClimateDataRequest:
     )
 
     request_data: RequestData
-    gdh_base: float
-    temperature_transform: Callable[[NasaDataArray], npt.NDArray[np.float32]]
     api_version: str = field(default=_DEFAULT_API_VERSION, repr=False, kw_only=True)
     _session: Session = field(init=False, repr=False)
     # convenience fields for validation and processing
@@ -345,7 +436,9 @@ class ClimateDataRequest:
         # perform the api call
         try:
             response = self._session.get(
-                NASA_HOURLY_API, params=params, timeout=self._TIMEOUT,
+                NASA_HOURLY_API,
+                params=params,
+                timeout=self._TIMEOUT,
             )
         # timeout, connection, or other request-related error
         except RequestException as rerr:
@@ -430,6 +523,15 @@ class ClimateDataRequest:
 
         LOGGER.info("Parsed %d records with columns: %s", len(data), data.dtype.names)
 
+        # Validate proper time units were returned
+        missing_time_fields = DATETIME_UNITS - set(
+            filter(is_datetime_unit, data.dtype.names or ())
+        )
+        if missing_time_fields:
+            msg = f"Missing required time fields: {missing_time_fields}"
+            LOGGER.error(msg)
+            raise ValueError(msg)
+
         # Validate we got expected parameter columns
         actual: set[Parameters] = set(filter(is_parameter, (data.dtype.names or ())))
 
@@ -446,8 +548,8 @@ class ClimateDataRequest:
         for param in self.parameters:
             data[param][data[param] == MISSING_DATA] = np.nan
 
-        # calculate annual means for each parameter
-        final = self._calculate_hourly_stats(data, gdh_base=4.5, transform=Shift(2.0))
+        # reindex by MO, DY, HR triplets and reshape data to (8760, years)
+        final = self._reindex(data)
 
         # validate final shape is 8760
         if final.shape[0] != HOURS_PER_YEAR:
@@ -459,15 +561,18 @@ class ClimateDataRequest:
 
         return final
 
-    def _calculate_hourly_stats(self, data: NasaDataArray) -> NasaDataArray:
+    def _reindex(self, data: NasaDataArray) -> NasaDataArray:
+        """Reindex data by MO, DY, HR triplets"""
         # Sort by date fields
         sort_idx = np.lexsort((data["HR"], data["DY"], data["MO"]))
         sorted_data = data[sort_idx]
 
         # Find unique dates and their positions
         sorted_dates = sorted_data[["MO", "DY", "HR"]]
-        unique_dates, unique_idx, counts = np.unique(
-            sorted_dates, return_index=True, return_counts=True,
+        unique_dates, _, counts = np.unique(
+            sorted_dates,
+            return_index=True,
+            return_counts=True,
         )
 
         # Check all counts are the same (np.nan evaluate to True)
@@ -482,26 +587,23 @@ class ClimateDataRequest:
             raise ValueError(msg)
 
         # Prepare output array
-        dates: int = len(unique_dates)
-        hourly_stats: NasaDataArray = np.empty(dates, dtype=HourlyDataDType)
-        hourly_stats["MO"] = unique_dates["MO"]
-        hourly_stats["DY"] = unique_dates["DY"]
+        dates: int = len(unique_dates)  # 8760 for non-leap years
+        cache_dtype: np.dtype[Any] = hourly_cache_dtype(years)
+        hourly_stats: NasaDataArray = np.empty(dates, dtype=cache_dtype)
         hourly_stats["HR"] = unique_dates["HR"]
+        hourly_stats["DY"] = unique_dates["DY"]
+        hourly_stats["MO"] = unique_dates["MO"]
+        hourly_stats["RH2M"] = sorted_data["RH2M"].reshape(dates, years).round(2)
+        hourly_stats["T2M"] = sorted_data["T2M"].reshape(dates, years).round(2)
+        hourly_stats["ALLSKY_SFC_SW_DWN"] = (
+            sorted_data["ALLSKY_SFC_SW_DWN"]
+            .reshape(
+                dates,
+                years,
+            )
+            .round()
+        )  # round to whole W/m^2
 
-        inner_t2m = self.temperature_transform(sorted_data)
-        gdh_2d = np.maximum(inner_t2m - self.gdh_base, 0).reshape(dates, years)
-
-        # generate GDH percentiles
-        for p in PERCENTILES:
-            k = f"GDH_p{p:02d}"
-            hourly_stats[k] = np.percentile(gdh_2d, p, axis=1).round(2)
-
-        # Use reduceat to sum within each group
-        t2m_sums = np.add.reduceat(sorted_data["T2M"], unique_idx, dtype=np.float64)
-        rh2m_sums = np.add.reduceat(sorted_data["RH2M"], unique_idx, dtype=np.float64)
-
-        hourly_stats["T2M"] = (t2m_sums / years).round(2)
-        hourly_stats["RH2M"] = (rh2m_sums / years).round(2)
         return hourly_stats
 
     def _get_header_length(self, lines: list[str]) -> int:
