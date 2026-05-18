@@ -5,12 +5,12 @@ from typing import ClassVar, Final
 import numpy as np
 from numpy import typing as npt
 
-from gdhprediction.utils import NasaDataArray, Parameters, is_parameter
+from gdhprediction.utils import NasaDataArray, NasaParameters, is_parameter
 
 
 class TemperatureTransform(ABC):
 
-    required_params: ClassVar[set[Parameters]] = set[Parameters]()
+    required_params: ClassVar[set[NasaParameters]] = set[NasaParameters]()
 
     @abstractmethod
     def __call__(self, data: NasaDataArray) -> npt.NDArray[np.float32]: ...
@@ -39,7 +39,7 @@ IDENTITY: Final = Identity()
 @dataclass(frozen=True, slots=True)
 class Shift(TemperatureTransform):
 
-    required_params: ClassVar[set[Parameters]] = {"T2M"}
+    required_params: ClassVar[set[NasaParameters]] = {"T2M"}
     degree_shift: float
 
     def __call__(self, data: NasaDataArray) -> npt.NDArray[np.float32]:
@@ -50,7 +50,7 @@ class Shift(TemperatureTransform):
 @dataclass(frozen=True, slots=True)
 class RadiationShift(Shift):
 
-    required_params: ClassVar[set[Parameters]] = {"T2M", "ALLSKY_SFC_SW_DWN"}
+    required_params: ClassVar[set[NasaParameters]] = {"T2M", "ALLSKY_SFC_SW_DWN"}
     solar_factor: float = 0.01
 
     def __call__(self, data: NasaDataArray) -> npt.NDArray[np.float32]:

@@ -19,11 +19,11 @@ Each fruit maturation stage requires a certain amount of growth-degree-hours (GD
 The program must meet the following:
 
 - [ ] take counts of seven strawberry maturation stages as input
-- [ ] read historical temperature data from NASA Power API
-- [ ] use local meteorological forecast
+- [x] read historical temperature data from NASA Power API
+- [x] use local meteorological forecast (e.g. BrightSky)
 - [ ] predict the maturation schedule for the next 30 days
 - [ ] extrapolate the yield for the whole greenhouse
-- [ ] for a given GPS, download the historical temperature data only once
+- [x] for a given GPS, download the historical temperature data only once
 
 Configuration must allow:
 
@@ -43,5 +43,7 @@ Strawberry classification:
 
 ## Technical details
 
-The program will run on Raspberry Pi.
-It will recalculate the prediction for the next 30 days every day.
+The program will run on server.
+The program will have access to site sensor data from a database.
+The accessible data are temperature (T2M, °C), relative humidity (RH2M, %), CO2 (CO2, ppm),
+and radiation measurements (lux).

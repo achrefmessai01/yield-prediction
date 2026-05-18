@@ -94,15 +94,17 @@ class GdhPredictionPaths:
         dir_path.mkdir(parents=True, exist_ok=True)
         return dir_path
 
-    @property
-    def forecast_cache(self) -> Path:
-        return self.cache / "forecast.json"
+    def data_file(self, hashkey: str) -> Path:
+        return self.data / f"{hashkey}.npy"
 
-    def climate_data(self, hashkey: str) -> Path:
-        return self.data / f"climate_{hashkey}.npy"
+    def data_file_checksum(self, hashkey: str) -> Path:
+        return self.data / f"{hashkey}.sha256"
 
-    def climate_data_checksum(self, hashkey: str) -> Path:
-        return self.data / f"climate_{hashkey}.sha256"
+    def cache_file(self, hashkey: str) -> Path:
+        return self.cache / f"{hashkey}.npy"
+
+    def cache_file_checksum(self, hashkey: str) -> Path:
+        return self.cache / f"{hashkey}.sha256"
 
     @property
     def model_config(self) -> Path:
