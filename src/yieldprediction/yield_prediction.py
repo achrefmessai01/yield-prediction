@@ -163,8 +163,17 @@ class YieldPrediction:
             
             prediction_count.append(cur_prediction_count)
                 
-
-        return prediction_count, prediction_weight
+        # Results are per row now, but we only need the accumulated results over all rows
+        accumulated_prediction_count = list()
+        accumulated_prediction_weights = list()
+        for row_index in range(len(prediction_count)):
+            for day in range(len(prediction_count[row_index])):
+                if row_index == 0:
+                    accumulated_prediction_count.append(0)
+                    accumulated_prediction_weights.append(0)
+                accumulated_prediction_count[day] += prediction_count[row][day]
+                accumulated_prediction_weights[day] += float(prediction_weight[row][day])
+        return accumulated_prediction_count, accumulated_prediction_weights
         
 
 if __name__ == "__main__":
@@ -174,7 +183,8 @@ if __name__ == "__main__":
 
     yp = YieldPrediction("tenant1", "batch1")
     pred_count, pred_weight = yp.get_prediction(store_for_training=True)
+    print(pred_weight)
+    print(pred_count)
     import matplotlib.pyplot as plt
-    for row_index, row_predcition in enumerate(pred_count):
-        plt.plot(row_predcition)
+    plt.plot(pred_count)
     plt.show()

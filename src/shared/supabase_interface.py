@@ -72,15 +72,23 @@ class SupaBaseInterface:
         for tenant in tenants:
             tenant_list.append(tenant["name"])
         return tenant_list
+    
+    def get_greenhouse(self, tenant: str, batch: str) -> str:
+        tenant_id = self.get_tetant_id(tenant)
+        greenhouse_list = self.supabase.table("harvests").select("greenhouse").eq("tenantId", tenant_id).eq("batch", batch).eq("status", "").execute().data
+        if len(greenhouse_list) > 0:
+            greenhouse = greenhouse_list[0]["greenhouse"]
+            for g in greenhouse_list:
+                if not g == greenhouse:
+                    raise ValueError(f"Multiple greenhouses found for tenant {tenant} and batch {batch}")
+            return greenhouse
+        else:
+            raise ValueError(f"No data found for tenant {tenant} and batch {batch}")
+
         
     def set_yield_prediction(self, tenant: str, batch: str, yield_prediction: List[List[float]]):
-        pass
+        pass #TODO create new table to set results
         
 
-if __name__ == "__main__":
-    supabase_interface = SupaBaseInterface("my_url", "my_key")
-    t = "vGreens Essen "
-    b = "Strawberry - Variety 1"
-    days_since_harvest = supabase_interface.get_days_since_harvest(t, b)
-    print(days_since_harvest)
+
     
