@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Final, Literal, Self, assert_never, get_type_hints
+from pydantic import TypeAdapter
 
 import yaml
 
@@ -55,11 +56,30 @@ class GdhPredictionConfig(FieldsHashMxn):
             if name not in config_mapping:
                 raise ValueError(f"Missing required config field: {name}")
             value = config_mapping[name]
-            if not isinstance(value, ftp):
-                msg = (
-                    f"Invalid type for {cls.__name__}.{name}: "
-                    f"expected {ftp}, got {type(value)}."
-                )
+            type_fits = False
+            msg = ""
+            try:
+                if isinstance(value, ftp):
+                    type_fits = True
+                else:
+                    type_fits = False
+                    msg = (
+                        f"Invalid type for {cls.__name__}.{name}: "
+                        f"expected {ftp}, got {type(value)}."
+                    )
+            except:
+                # if we are here we try to use isinstance on a Typing type which does not work
+                try:
+                    typing_type_validation = TypeAdapter(ftp)
+                    typing_type_validation.validate_python(value)
+                    type_fits = True
+                except:
+                    type_fits = False
+                    msg = (
+                        f"Invalid type for {cls.__name__}.{name}: "
+                        f"expected {ftp}, got {type(value)}."
+                    )
+            if not type_fits:
                 raise TypeError(msg)
 
     @classmethod

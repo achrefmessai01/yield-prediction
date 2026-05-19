@@ -15,7 +15,7 @@ from fruitloadprediction.config import FruitloadPredictionConfig
 from fruitloadprediction.paths import FruitloadPredictionPaths
 
 from gdhprediction.config import GdhPredictionConfig
-
+from gdhprediction.apis import get_gdh_prediction
 
 from yieldprediction.config import YieldPredictionConfig
 from yieldprediction.paths import YieldPredictionPaths
@@ -45,21 +45,28 @@ class YieldPrediction:
 
         self.paths = YieldPredictionPaths(tenant=tenant, batch=batch)
         self._config = YieldPredictionConfig()
-        self._config.write_default_config(self.paths.model_config)
         if not os.path.exists(self.paths.model_config):
             raise FileNotFoundError(f"Model config file not found at {self.paths.model_config}")
         self._config.from_path(self.paths.model_config)
         
         fruitload_paths = FruitloadPredictionPaths(tenant=tenant, batch=batch)
         fruitload_config = FruitloadPredictionConfig()
-        fruitload_conf.write_default_config(fruitload_paths.model_config)
         if not os.path.exists(fruitload_paths.model_config):
             raise FileNotFoundError(f"Model config file not found at {fruitload_paths.model_config}")
         fruitload_config.from_path(fruitload_paths.model_config)
         flm = FruitLoadModel(fruitload_config, self.get_bins())
         self.estimated_fruit_load, self. growing_stages_ordered = flm.get_current_fruit_load()
-        # TODO: get actual list of gdh list per day here
-        self.estimated_gdh = [randint(230, 290) for _ in range(28)]
+
+        gdh_config = GdhPredictionConfig()
+        self.estimated_gdh = get_gdh_prediction(
+            self._config.latitude,
+            self._config.longitude,
+            gdh_config,
+            frequency="daily"
+        )
+        print(self.estimated_gdh)
+        self.convert_gdh()
+        print(self.estimated_gdh)
         self.check_parameters()
 
     def check_parameters(self) -> None:
@@ -71,6 +78,13 @@ class YieldPrediction:
         if not Counter(self.growing_stages_ordered) == Counter(self.estimated_fruit_load[0].keys()):
             raise ValueError("The growing stages ordered must match the estimated fruit load keys")
         
+    def convert_gdh(self) -> None:
+        last_val = self.estimated_gdh[0]
+        for day in range(1, len(self.estimated_gdh)):
+            new_val = self.estimated_gdh[day] - last_val
+            last_val = self.estimated_gdh[day]
+            self.estimated_gdh[day] = new_val
+
     def get_bins(self) -> Dict[str, Dict[str, int]]:
         # TODO: add db request to get bins, return dummy for local testing
         bins = {
@@ -174,17 +188,3 @@ class YieldPrediction:
                 accumulated_prediction_count[day] += prediction_count[row][day]
                 accumulated_prediction_weights[day] += float(prediction_weight[row][day])
         return accumulated_prediction_count, accumulated_prediction_weights
-        
-
-if __name__ == "__main__":
-    yield_conf = YieldPredictionConfig()
-    fruitload_conf = FruitloadPredictionConfig()
-    gdh_conf = GdhPredictionConfig()
-
-    yp = YieldPrediction("tenant1", "batch1")
-    pred_count, pred_weight = yp.get_prediction(store_for_training=True)
-    print(pred_weight)
-    print(pred_count)
-    import matplotlib.pyplot as plt
-    plt.plot(pred_count)
-    plt.show()

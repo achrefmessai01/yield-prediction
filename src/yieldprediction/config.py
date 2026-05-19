@@ -18,6 +18,14 @@ class YieldPredictionConfig(FieldsHashMxn):
 
     # default config
 
+    # ---------- General config ----------
+    days_of_prediction: int = 28
+
+    # ---------- Greenhouse config ----------
+    latitude: float = 51.503721859917725
+    longitude: float = 7.050592540313427
+
+    # ---------- Plant config ----------
     # percent of gdh needed for each stage to grow to the next one
     gdh_percent_stage_to_stage: Dict[str, float] = field(default_factory=lambda:{
         "Flower": 0.2,
@@ -27,13 +35,10 @@ class YieldPredictionConfig(FieldsHashMxn):
         "White_Red_Fruit": 0.2
     })
     total_gdh_needed: int = 7500
-    days_of_prediction: int = 28
     # weight per ripe fruit in gram
     avg_weight: float = 15.0 # TODO: model weight over the growing period
-    new_flower_factor = 0.1 # TODO: model the amount of new flowers coming up over the growing period
 
-
-    # constraints for modelling the parameters
+    # ---------- Constraints config ----------
     constrain_min_gdh_percent_stage_to_stage: Dict[str, float] = field(default_factory=lambda:{
         "Flower": 0.1,
         "Flower_Fruit": 0.1,
