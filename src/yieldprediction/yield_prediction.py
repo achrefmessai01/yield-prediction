@@ -14,14 +14,14 @@ from fruitloadprediction.fruit_load import FruitLoadModel
 from fruitloadprediction.config import FruitloadPredictionConfig
 from fruitloadprediction.paths import FruitloadPredictionPaths
 
-from gdhprediction.config import GdhPredictionConfig
+from gdhprediction.config import GdhPredictionConfig, GdhPredictionPaths
 from gdhprediction.apis import get_gdh_prediction
 
 from yieldprediction.config import YieldPredictionConfig
 from yieldprediction.paths import YieldPredictionPaths
 
 class YieldPrediction:
-    """Main entry point for the yield prediction application. Using the fruitload and gdh prediction"""
+    """Yield prediction application, using the fruitload and gdh prediction"""
 
     estimated_fruit_load: list
     growing_stages_ordered: list
@@ -57,7 +57,11 @@ class YieldPrediction:
         flm = FruitLoadModel(fruitload_config, self.get_bins())
         self.estimated_fruit_load, self. growing_stages_ordered = flm.get_current_fruit_load()
 
+        gdh_paths = GdhPredictionPaths()
         gdh_config = GdhPredictionConfig()
+        if not os.path.exists(gdh_paths.model_config):
+            raise FileNotFoundError(f"Model config file not found at {gdh_paths.model_config}")
+        gdh_config.from_path(gdh_paths.model_config)
         self.estimated_gdh = get_gdh_prediction(
             self._config.latitude,
             self._config.longitude,
