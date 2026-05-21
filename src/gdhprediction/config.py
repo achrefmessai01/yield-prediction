@@ -83,7 +83,7 @@ class GdhPredictionConfig(FieldsHashMxn):
                 raise TypeError(msg)
 
     @classmethod
-    def write_default_config(cls, config_yaml: Path) -> None:
+    def write_config(cls, config_yaml: Path) -> None:
         default_cfg = cls()
         with config_yaml.open("w", encoding="utf-8") as fh:
             yaml.safe_dump(asdict(default_cfg), fh)

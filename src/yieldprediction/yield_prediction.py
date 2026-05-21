@@ -44,33 +44,28 @@ class YieldPrediction:
         self.batch = batch
 
         self.paths = YieldPredictionPaths(tenant=tenant, batch=batch)
-        self._config = YieldPredictionConfig()
         if not os.path.exists(self.paths.model_config):
             raise FileNotFoundError(f"Model config file not found at {self.paths.model_config}")
-        self._config.from_path(self.paths.model_config)
+        self._config = YieldPredictionConfig.from_path(self.paths.model_config)
         
         fruitload_paths = FruitloadPredictionPaths(tenant=tenant, batch=batch)
-        fruitload_config = FruitloadPredictionConfig()
         if not os.path.exists(fruitload_paths.model_config):
             raise FileNotFoundError(f"Model config file not found at {fruitload_paths.model_config}")
-        fruitload_config.from_path(fruitload_paths.model_config)
+        fruitload_config = FruitloadPredictionConfig.from_path(fruitload_paths.model_config)
         flm = FruitLoadModel(fruitload_config, self.get_bins())
         self.estimated_fruit_load, self. growing_stages_ordered = flm.get_current_fruit_load()
 
         gdh_paths = GdhPredictionPaths()
-        gdh_config = GdhPredictionConfig()
         if not os.path.exists(gdh_paths.model_config):
             raise FileNotFoundError(f"Model config file not found at {gdh_paths.model_config}")
-        gdh_config.from_path(gdh_paths.model_config)
+        gdh_config = GdhPredictionConfig.from_path(gdh_paths.model_config)
         self.estimated_gdh = get_gdh_prediction(
             self._config.latitude,
             self._config.longitude,
             gdh_config,
             frequency="daily"
         )
-        print(self.estimated_gdh)
         self.convert_gdh()
-        print(self.estimated_gdh)
         self.check_parameters()
 
     def check_parameters(self) -> None:
@@ -170,7 +165,6 @@ class YieldPrediction:
             if store_for_training:
                 cur_time = datetime.datetime.now()
                 store_path = os.path.join(self.paths.data, "full_pred_data-{date:%Y-%m-%d_%H:%M:%S}.csv".format(date=cur_time))
-                print(store_path)
                 with open(store_path, 'w', newline='') as output_file:
                     dict_writer = csv.DictWriter(output_file, full_steps[0].keys())
                     dict_writer.writeheader()

@@ -12,7 +12,7 @@ from yieldprediction.utils import (
 )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=False)
 class YieldPredictionConfig(FieldsHashMxn):
     """Configuration for yield prediction."""
 
@@ -97,8 +97,7 @@ class YieldPredictionConfig(FieldsHashMxn):
             if not type_fits:
                 raise TypeError(msg)
 
-    @classmethod
-    def write_default_config(cls, config_yaml: Path) -> None:
-        default_cfg = cls()
+    def write_config(self, config_yaml: Path) -> None:
+        as_dict = asdict(self)
         with config_yaml.open("w", encoding="utf-8") as fh:
-            yaml.safe_dump(asdict(default_cfg), fh)
+            yaml.safe_dump(as_dict, fh)
