@@ -2,7 +2,18 @@ import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
-from typing import Any, Final, Literal, Self, assert_never, get_type_hints
+from typing import (
+    Any,
+    Final,
+    Literal,
+    Self,
+    TypedDict,
+    assert_never,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 import yaml
 
@@ -15,6 +26,13 @@ from gdhprediction.transforms import (
 from gdhprediction.utils import FieldsHashMxn, Transforms
 
 # processing configuration
+
+
+class _GdhPredictionData(TypedDict):
+    gdh_base: float
+    temperature_shift: float
+    solar_factor: float
+    transform_key: Transforms
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +48,7 @@ class GdhPredictionConfig(FieldsHashMxn):
     def from_path(cls, config_yaml: Path) -> Self:
         with config_yaml.open("r", encoding="utf-8") as fh:
             config_mapping = yaml.safe_load(fh)
-        cls._validate_serial(config_mapping)
+        config_mapping = cls._validate_serial(config_mapping)
         return cls(**config_mapping)
 
     @property
@@ -47,7 +65,7 @@ class GdhPredictionConfig(FieldsHashMxn):
                 assert_never(key)
 
     @classmethod
-    def _validate_serial(cls, config_mapping: Mapping[str, Any]) -> None:
+    def _validate_serial(cls, config_mapping: Mapping[str, Any]) -> _GdhPredictionData:
         ftp_hints: Mapping[str, type] = get_type_hints(cls)
         for f in fields(cls):
             name = f.name
@@ -55,18 +73,39 @@ class GdhPredictionConfig(FieldsHashMxn):
             if name not in config_mapping:
                 raise ValueError(f"Missing required config field: {name}")
             value = config_mapping[name]
+            # special case for the Transforms literal
+            if get_origin(ftp) is Literal:
+                if not isinstance(value, str):
+                    msg = (
+                        f"Invalid type for {cls.__name__}.{name}: "
+                        f"expected a string literal, got {type(value)}."
+                    )
+                    raise TypeError(msg)
+                allowed: tuple[Transforms, ...] = get_args(ftp)
+                if value not in allowed:
+                    msg = (
+                        f"Invalid value for {cls.__name__}.{name}: "
+                        f"expected one of {allowed}, got {value!r}."
+                    )
+                    raise ValueError(msg)
+                continue
             if not isinstance(value, ftp):
                 msg = (
                     f"Invalid type for {cls.__name__}.{name}: "
                     f"expected {ftp}, got {type(value)}."
                 )
                 raise TypeError(msg)
+        # cast after validation
+        return cast("_GdhPredictionData", config_mapping)
 
     @classmethod
     def write_default_config(cls, config_yaml: Path) -> None:
         default_cfg = cls()
+        default_cfg.write_to_path(config_yaml)
+
+    def write_to_path(self, config_yaml: Path) -> None:
         with config_yaml.open("w", encoding="utf-8") as fh:
-            yaml.safe_dump(asdict(default_cfg), fh)
+            yaml.safe_dump(asdict(self), fh)
 
 
 # cache and config path management

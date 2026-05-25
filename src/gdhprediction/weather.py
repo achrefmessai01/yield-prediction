@@ -41,13 +41,13 @@ class BrightSkyRecord(TypedDict):
 @dataclass(frozen=True, slots=True)
 class WeatherRequestData(FieldsHashMxn):
 
-    _MAX_DURATION: ClassVar[int] = 10  # days
+    MAX_DURATION: ClassVar[int] = 10  # days
     SNAPPED: ClassVar[int] = 6  # hours
 
     lat: float
     lon: float
     start_date: InitVar[datetime | None] = field(default=None, repr=False)
-    duration: InitVar[int] = field(default=_MAX_DURATION, repr=False)
+    duration: InitVar[int] = field(default=MAX_DURATION, repr=False)
     date: str = field(init=False)
     last_date: str = field(init=False)
     gps_tzinfo: ZoneInfo = field(init=False)
@@ -184,7 +184,7 @@ class WeatherGdhData(GdhData[WeatherRequestData]):
         config: GdhPredictionConfig,
         *,
         start_datetime: datetime | None = None,
-        duration: int = 10,
+        duration: int = WeatherRequestData.MAX_DURATION,
         **kwargs: Any,
     ) -> Self:
         request_data = WeatherRequestData(latitude, longitude, start_datetime, duration)
