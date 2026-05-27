@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 from requests import RequestException
 
-from gdhprediction.config import GdhPredictionConfig
+from shared.configs import GdhPredictionConfig
 from gdhprediction.request import CacheManager, DataRequest, GdhData, RequestApiError
 from gdhprediction.utils import (
     BRIGHTSKY_API,

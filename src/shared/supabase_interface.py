@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 from supabase import create_client, Client
 
 from typing import List, Dict
@@ -73,6 +74,15 @@ class SupaBaseInterface:
             tenant_list.append(tenant["name"])
         return tenant_list
     
+    def get_tenant_influx_bucket(self, tenant: str) -> str:
+        tenant_id = self.get_tetant_id(tenant)
+        tenants = self.supabase.table("tenants").select("influxBucketName").eq("id", tenant_id).execute().data
+        if len(tenants) > 0:
+            return tenants[0]["influxBucketName"]
+        else:
+            raise ValueError(f"No data found for tenant {tenant}")
+        
+    
     def get_greenhouse(self, tenant: str, batch: str) -> str:
         tenant_id = self.get_tetant_id(tenant)
         greenhouse_list = self.supabase.table("harvests").select("greenhouse").eq("tenantId", tenant_id).eq("batch", batch).eq("status", "").execute().data
@@ -90,5 +100,17 @@ class SupaBaseInterface:
         pass #TODO create new table to set results
         
 
+if __name__ == "__main__":
 
+    url = "https://erkjktrengqtbkilhmpe.supabase.co"
+    load_dotenv()
+    key = os.environ.get("SUPABASE_KEY")
+
+    supabase_interface = SupaBaseInterface(url, key)
+    t = "Knaup"
+    b = "awdwadaw - awdwad"
+    #days_since_harvest = supabase_interface.get_days_since_harvest(t, b)
+    #print(days_since_harvest)
+    greenhouse = supabase_interface.get_greenhouse(t, b)
+    print(greenhouse)
     

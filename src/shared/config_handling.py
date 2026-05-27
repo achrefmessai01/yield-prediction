@@ -1,15 +1,8 @@
 import os
 
 
-
-from fruitloadprediction.config import FruitloadPredictionConfig
-from fruitloadprediction.paths import FruitloadPredictionPaths
-
-from gdhprediction.config import GdhPredictionConfig, GdhPredictionPaths
-
-from yieldprediction.config import YieldPredictionConfig
-from yieldprediction.paths import YieldPredictionPaths
-
+from shared.configs import FruitloadPredictionConfig, GdhPredictionConfig, YieldPredictionConfig
+from shared.paths import FruitloadPredictionPaths, GdhPredictionPaths, YieldPredictionPaths
 
 
 class ConfigHandling:

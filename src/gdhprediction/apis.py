@@ -7,7 +7,7 @@ import numpy.typing as npt
 import typer
 
 from gdhprediction.climate import ClimateGdhData
-from gdhprediction.config import GdhPredictionConfig
+from shared.configs import GdhPredictionConfig
 from gdhprediction.request import CacheManager, CacheScope
 from gdhprediction.utils import (
     CLIMATE_YEARS,

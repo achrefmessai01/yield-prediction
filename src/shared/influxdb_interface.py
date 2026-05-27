@@ -1,0 +1,122 @@
+
+import os
+from dotenv import load_dotenv
+from influxdb_client import InfluxDBClient
+import datetime
+
+from supabase_interface import SupaBaseInterface
+
+
+class InfluxDBInterface:
+
+    influx: InfluxDBClient
+    supabase_interface: SupaBaseInterface
+
+    def __init__(self, url: str, org: str, token: str, supabase_interface: SupaBaseInterface) -> None:
+        self.influx = InfluxDBClient(url=url, org=org, token=token)
+        self.supabase_interface = supabase_interface
+
+    def get_strawberry_count_data(self, tenant: str, batch: str, start_date: datetime.datetime):
+
+        # we will get the tenant name like it is setup in the SupaBase and therefore the frontend
+        # but we will need it the fitting bucket id
+        tenant_bucket = self.supabase_interface.get_tenant_influx_bucket(tenant)
+
+        query_api = self.influx.query_api()
+        query = f'''from(bucket: "{tenant_bucket}")
+            |> range(start: {start_date.isoformat().replace("+00:00", "Z")})
+            |> filter(fn: (r) => r._measurement == "vgreens_strawberry")'''
+        tables = query_api.query(query, org="vgreens")
+
+        # get all bounding boxes with their classes
+        # dict will be per timestamp -> camera -> bounding box index -> bounding box data
+        bounding_boxes = dict()
+
+        for table in tables:
+            for record in table.records:
+                field = record["_field"]
+                if not "boxes" in field and not "classes" in field and not "scores" in field:
+                    continue
+
+                value = record["_value"]
+                device = record["device"]
+                greenhouse = record["greenhouse"]
+                camera = record["camera"]
+                row = record["row"] # TODO: change to use this value later, when the value in the InfluxDB is correct, for now use manual mapping
+                timestamp = record["_time"]
+
+                time_key = timestamp.strftime("%Y_%m_%d_%H_%M_%S")
+                if not time_key in bounding_boxes.keys():
+                    bounding_boxes[time_key] = dict()
+                camera_id = device+"_cam"+str(camera)+"_row"+str(row)
+                if not camera_id in bounding_boxes[time_key].keys():
+                    bounding_boxes[time_key][camera_id] = dict()
+                if "boxes" in field:
+                    bb_parsed = field.replace("boxes", "").split("_")
+                    bb_index = int(bb_parsed[0])
+                    bb_corner = int(bb_parsed[1])
+                    if not bb_index in bounding_boxes[time_key][camera_id].keys():
+                        bounding_boxes[time_key][camera_id][bb_index] = dict()
+                        bounding_boxes[time_key][camera_id][bb_index]["corners"] = [-1,-1,-1,-1]
+                    bounding_boxes[time_key][camera_id][bb_index]["corners"][bb_corner] = value
+                elif "classes" in field:
+                    bb_index = int(field.replace("classes",""))
+                    if not bb_index in bounding_boxes[time_key][camera_id].keys():
+                        bounding_boxes[time_key][camera_id][bb_index] = dict()
+                    bounding_boxes[time_key][camera_id][bb_index]["class"] = value
+                elif "scores" in field:
+                    bb_index = int(field.replace("scores",""))
+                    if not bb_index in bounding_boxes[time_key][camera_id].keys():
+                        bounding_boxes[time_key][camera_id][bb_index] = dict()
+                    bounding_boxes[time_key][camera_id][bb_index]["score"] = value
+        
+        # now we go over the bounding boxes and check if they all have all the needed data, otherwise we need to remove that data
+        invalid_timestamps = list()
+        for timestamp in bounding_boxes.keys():
+            invalid_cameras = list()
+            for camera_id in bounding_boxes[timestamp].keys():
+                invalid_bbs = list()
+                for bb_index in bounding_boxes[timestamp][camera_id].keys():
+                    if not "corners" in bounding_boxes[timestamp][camera_id][bb_index]:
+                        invalid_bbs.append(bb_index)
+                        continue
+                    if -1 in bounding_boxes[timestamp][camera_id][bb_index]["corners"]:
+                        invalid_bbs.append(bb_index)
+                        continue
+                    if not "class" in bounding_boxes[timestamp][camera_id][bb_index]:
+                        invalid_bbs.append(bb_index)
+                        continue
+                    if not "score" in bounding_boxes[timestamp][camera_id][bb_index]:
+                        invalid_bbs.append(bb_index)
+                        continue
+                for invalid_bb in invalid_bbs:
+                    del bounding_boxes[timestamp][camera_id][invalid_bb]
+                if len(bounding_boxes[timestamp][camera_id].keys()) == 0:
+                    invalid_cameras.append(camera_id)
+            for invalid_camera in invalid_cameras:
+                del bounding_boxes[timestamp][invalid_camera]
+            if len(bounding_boxes[timestamp].keys()) == 0:
+                invalid_timestamps.append(timestamp)
+        for invalid_timestamp in invalid_timestamps:
+            del bounding_boxes[invalid_timestamp]
+
+        return bounding_boxes
+
+
+if __name__ == "__main__":
+    url = "https://vgreens-influx.fly.dev"
+    org = "vgreens"
+    load_dotenv()
+    token = os.environ.get("INFLUXDB_TOKEN")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+
+    influx_interface = InfluxDBInterface(url, org, token, SupaBaseInterface("https://erkjktrengqtbkilhmpe.supabase.co", supabase_key))
+    
+    tenant = "Knaup"
+    batch = "dsaasd - adssadas"
+    bb_data = influx_interface.get_strawberry_count_data(tenant, batch, datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1))
+    print(bb_data)
+
+    
+
+

@@ -11,14 +11,10 @@ import csv
 import datetime
 
 from fruitloadprediction.fruit_load import FruitLoadModel
-from fruitloadprediction.config import FruitloadPredictionConfig
-from fruitloadprediction.paths import FruitloadPredictionPaths
+from shared.configs import FruitloadPredictionConfig, YieldPredictionConfig, GdhPredictionConfig
+from shared.paths import FruitloadPredictionPaths, YieldPredictionPaths, GdhPredictionPaths
 
-from gdhprediction.config import GdhPredictionConfig, GdhPredictionPaths
 from gdhprediction.apis import get_gdh_prediction
-
-from yieldprediction.config import YieldPredictionConfig
-from yieldprediction.paths import YieldPredictionPaths
 
 class YieldPrediction:
     """Yield prediction application, using the fruitload and gdh prediction"""

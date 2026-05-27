@@ -9,13 +9,8 @@ from dataclasses import fields, is_dataclass
 from typing import Callable, Type, Optional, Sequence
 
 
-from yieldprediction.config import YieldPredictionConfig
-from yieldprediction.paths import YieldPredictionPaths
-
-from fruitloadprediction.config import FruitloadPredictionConfig
-from fruitloadprediction.paths import FruitloadPredictionPaths
-
-from gdhprediction.config import GdhPredictionConfig, GdhPredictionPaths
+from shared.configs import FruitloadPredictionConfig, GdhPredictionConfig, YieldPredictionConfig
+from shared.paths import FruitloadPredictionPaths, GdhPredictionPaths, YieldPredictionPaths
 
 from yieldprediction.yield_prediction import YieldPrediction
 
@@ -78,11 +73,14 @@ gdh_percent_stage_to_stage_gui_renderer = None
 predicted_plot_counts_renderer = None
 predicted_plot_weight_renderer = None
 
+
+batch_select = None
+
 '''
 GUI functions ----------------------------
 '''
 def on_tenant_change(e):
-    global selected_tenant, selected_batch
+    global selected_tenant, selected_batch, batch_select
     selected_tenant = e.value
     batch_select.options = batch_dict[selected_tenant]
     batch_select.value = batch_dict[selected_tenant][0]
@@ -310,7 +308,7 @@ with ui.column().classes('w-full gap-4 p-4'):
             ).classes('w-64')
 
             # batch selection
-            ui.select(
+            batch_select = ui.select(
                 batch_dict[selected_tenant],
                 label="Batch",
                 value=selected_batch,
@@ -346,12 +344,12 @@ with ui.row().classes('w-full gap-4 items-stretch'):
                                     backward=lambda v: int(v) if v is not None else 0,
                                 )
                         
-                        ui.input(
+                        ui.number(
                             label="Latitude",
                             value=yield_pred_config.latitude
                         ).bind_value(yield_pred_config, 'latitude')
 
-                        ui.input(
+                        ui.number(
                             label="Longitude",
                             value=yield_pred_config.longitude
                         ).bind_value(yield_pred_config, 'longitude')

@@ -9,8 +9,8 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from fruitloadprediction.config import FruitloadPredictionConfig
-from fruitloadprediction.paths import FruitloadPredictionPaths
+from shared.configs import FruitloadPredictionConfig
+from shared.paths import FruitloadPredictionPaths
 
 
 class FruitLoadModel:
