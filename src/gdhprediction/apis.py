@@ -7,7 +7,7 @@ import numpy.typing as npt
 import typer
 
 from gdhprediction.climate import ClimateGdhData
-from gdhprediction.config import GdhPredictionConfig
+from gdhprediction.config import GdhLocalizedPredictionConfig
 from gdhprediction.request import CacheManager, CacheScope
 from gdhprediction.utils import (
     CLIMATE_YEARS,
@@ -25,9 +25,7 @@ cli = typer.Typer(no_args_is_help=True, add_completion=False)
 
 
 def get_gdh_prediction(
-    latitude: float,
-    longitude: float,
-    config: GdhPredictionConfig,
+    localized_config: GdhLocalizedPredictionConfig,
     maybe_datetime: date | datetime | None = None,
     frequency: Frequency = "hourly",
     duration: int = 28,
@@ -41,9 +39,7 @@ def get_gdh_prediction(
     (or current day if None) and includes `duration` daily values
     (last value of each day).
 
-    :param latitude: latitude of the location in degrees, between -90 and 90.
-    :param longitude: longitude of the location in degrees, between -180 and 180.
-    :param config: GdhPredictionConfig object with configuration parameters.
+    :param localized_config: the GPS-localized configuration for the prediction.
     :param maybe_datetime: optional date or datetime to start the prediction from.
         If None, defaults to the current date and time in the GPS timezone.
     :param frequency: "hourly" or "daily" output frequency.
@@ -51,6 +47,8 @@ def get_gdh_prediction(
     :return: a copy of the GDH prediction array, with shape (duration,) for daily
         and (duration * 24,) for hourly frequency.
     """
+    # unpack the GPS-localized config into its components
+    latitude, longitude, config = localized_config.unpack()
     # validate GPS
     validate_gps(latitude, longitude)
     # daily output requires start_datetime to start at midnight in the local timezone

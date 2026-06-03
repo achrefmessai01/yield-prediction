@@ -11,7 +11,7 @@ from gdhprediction.apis import (
     _coerce_tz_midnight,
     get_gdh_prediction,
 )
-from gdhprediction.config import GdhPredictionConfig
+from gdhprediction.config import GdhLocalizedPredictionConfig
 from gdhprediction.utils import coerce_tz_datetime
 
 WEATHER_DTYPE = np.dtype([("HR", "<u1"), ("GDH", "<f4")])
@@ -60,9 +60,7 @@ def _run(
         climate_cls.from_params.return_value.forecast_gdh.return_value = climate_arr
         weather_cls.from_params.return_value.forecast_gdh.return_value = weather_arr
         prediction = get_gdh_prediction(
-            LAT,
-            LON,
-            GdhPredictionConfig(),
+            GdhLocalizedPredictionConfig(LAT, LON),
             start,
             frequency=frequency,
             duration=duration,

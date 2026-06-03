@@ -1,6 +1,6 @@
 import os
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, fields
+from dataclasses import KW_ONLY, asdict, dataclass, fields
 from pathlib import Path
 from typing import (
     Any,
@@ -39,6 +39,7 @@ class _GdhPredictionData(TypedDict):
 class GdhPredictionConfig(FieldsHashMxn):
     """Configuration for gdh prediction."""
 
+    _: KW_ONLY
     gdh_base: float = 4.5
     temperature_shift: float = 2.0
     solar_factor: float = 0.01
@@ -106,6 +107,41 @@ class GdhPredictionConfig(FieldsHashMxn):
     def write_to_path(self, config_yaml: Path) -> None:
         with config_yaml.open("w", encoding="utf-8") as fh:
             yaml.safe_dump(asdict(self), fh)
+
+
+@dataclass(frozen=True, slots=True)
+class GdhLocalizedPredictionConfig(GdhPredictionConfig):
+    """Localized configuration for gdh prediction, including GPS coordinates."""
+
+    latitude: float
+    longitude: float
+
+    def unpack(self) -> tuple[float, float, GdhPredictionConfig]:
+        """Unpack its components: latitude, longitude, and the base transform config."""
+        return (
+            self.latitude,
+            self.longitude,
+            GdhPredictionConfig(
+                gdh_base=self.gdh_base,
+                temperature_shift=self.temperature_shift,
+                solar_factor=self.solar_factor,
+                transform_key=self.transform_key,
+            ),
+        )
+
+    @classmethod
+    def pack(
+        cls, latitude: float, longitude: float, config: GdhPredictionConfig,
+    ) -> "GdhLocalizedPredictionConfig":
+        """Pack the given components into a :class:`GdhLocalizedPredictionConfig`."""
+        return GdhLocalizedPredictionConfig(
+            latitude=latitude,
+            longitude=longitude,
+            gdh_base=config.gdh_base,
+            temperature_shift=config.temperature_shift,
+            solar_factor=config.solar_factor,
+            transform_key=config.transform_key,
+        )
 
 
 # cache and config path management
