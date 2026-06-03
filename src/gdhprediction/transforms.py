@@ -10,6 +10,7 @@ from gdhprediction.utils import NasaDataArray, NasaParameters, is_parameter
 
 class TemperatureTransform(ABC):
 
+    __slots__ = ()
     required_params: ClassVar[set[NasaParameters]] = set[NasaParameters]()
 
     @abstractmethod
@@ -27,6 +28,8 @@ class TemperatureTransform(ABC):
 
 
 class Identity(TemperatureTransform):
+
+    __slots__ = ()
 
     def __call__(self, data: NasaDataArray) -> npt.NDArray[np.float32]:
         self.validate(data)

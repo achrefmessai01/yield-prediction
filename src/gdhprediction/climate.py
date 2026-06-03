@@ -118,6 +118,8 @@ class RequestData(FieldsHashMxn):
 
 class ClimateGdhData(GdhData[RequestData]):
 
+    __slots__ = ()
+
     # default parameters for NASA API request
     COMMUNITY: ClassVar[Communities] = "ag"
     FORMAT: ClassVar[Formats] = "csv"
@@ -293,9 +295,9 @@ class ClimateDataRequest(DataRequest):
         LOGGER.info("Parsed %d records with columns: %s", len(data), data.dtype.names)
 
         # Validate proper time units were returned
-        missing_time_fields = DATETIME_UNITS - set(
-            filter(is_datetime_unit, data.dtype.names or ()),
-        )
+        missing_time_fields = DATETIME_UNITS - {
+            name for name in (data.dtype.names or ()) if is_datetime_unit(name)
+        }
         if missing_time_fields:
             msg = f"Missing required time fields: {missing_time_fields}"
             LOGGER.error(msg)
