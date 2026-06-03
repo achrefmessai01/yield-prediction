@@ -131,7 +131,10 @@ class GdhLocalizedPredictionConfig(GdhPredictionConfig):
 
     @classmethod
     def pack(
-        cls, latitude: float, longitude: float, config: GdhPredictionConfig,
+        cls,
+        latitude: float,
+        longitude: float,
+        config: GdhPredictionConfig,
     ) -> "GdhLocalizedPredictionConfig":
         """Pack the given components into a :class:`GdhLocalizedPredictionConfig`."""
         return GdhLocalizedPredictionConfig(

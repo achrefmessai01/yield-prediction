@@ -204,6 +204,91 @@ BERLIN: Final = ZoneInfo("Europe/Berlin")
 TOKYO: Final = ZoneInfo("Asia/Tokyo")
 
 
+class TestDstSeamCorrection(TestCase):
+    """BrightSky stamps every record with the offset present in the request's
+    `date` field (no ``tz=`` param is sent). NASA POWER LST is local
+    *standard* time year-round. So when ``start_datetime`` is in DST, the
+    weather frame runs one civil hour ahead of climate; ``climate_start``
+    must be pulled back by one to keep the seam aligned. When the start is
+    in standard time, no correction is needed.
+    """
+
+    @staticmethod
+    def _run_with_climate(start: datetime, climate_arr: np.ndarray) -> np.ndarray:
+        weather_arr = _weather(snapped_hour=12)
+        with (
+            patch("gdhprediction.apis.ClimateGdhData") as climate_cls,
+            patch("gdhprediction.apis.WeatherGdhData") as weather_cls,
+        ):
+            climate_cls.from_params.return_value.forecast_gdh.return_value = climate_arr
+            weather_cls.from_params.return_value.forecast_gdh.return_value = weather_arr
+            return get_gdh_prediction(
+                GdhLocalizedPredictionConfig(LAT, LON),
+                start,
+                frequency="hourly",
+                duration=DEFAULT_DURATION,
+            )
+
+    def test_summer_start_pulls_climate_seam_back_by_one(self) -> None:
+        """A quadratic climate array makes consecutive differences distinct,
+        so the seam index is observable from the prediction.
+        """
+        length = (DEFAULT_DURATION + 1) * 24
+        climate_arr = np.empty(length, dtype=CLIMATE_DTYPE)
+        # quadratic so climate[k+1]-climate[k] = 2k+1, distinct per index
+        climate_arr["GDH_p50"] = np.arange(length, dtype=np.float32) ** 2
+
+        # 12:00 is a 6h snap boundary -> weather_start = 0 -> weather portion
+        # is the full 240 records and the anchor is weather["GDH"][0] == 0.
+        summer_pred = self._run_with_climate(
+            datetime(2024, 6, 15, 12, 0),
+            climate_arr.copy(),
+        )
+        winter_pred = self._run_with_climate(
+            datetime(2024, 12, 15, 12, 0),
+            climate_arr.copy(),
+        )
+
+        # Sanity: weather portion is identical in both seasons (mock returns
+        # the same array; anchor and crop are season-independent).
+        n_weather = 240
+        np.testing.assert_array_almost_equal(
+            summer_pred[:n_weather],
+            winter_pred[:n_weather],
+        )
+
+        # Seam value is always the weather anchor regardless of DST, because
+        # climate_part is re-anchored with `- climate[climate_start]`.
+        weather_last = 239.0  # from _weather(snapped_hour=12)["GDH"][-1]
+        self.assertAlmostEqual(float(winter_pred[n_weather]), weather_last)
+        self.assertAlmostEqual(float(summer_pred[n_weather]), weather_last)
+
+        # The first climate STEP reveals climate_start.
+        # No-DST path:    climate_start = 240 + 12      = 252
+        # In-DST path:    climate_start = 240 + 12 - 1  = 251
+        gdh = climate_arr["GDH_p50"]
+        expected_winter_step = float(gdh[253] - gdh[252])  # 2*252 + 1 = 505
+        expected_summer_step = float(gdh[252] - gdh[251])  # 2*251 + 1 = 503
+
+        self.assertAlmostEqual(
+            float(winter_pred[n_weather + 1] - winter_pred[n_weather]),
+            expected_winter_step,
+            places=3,
+        )
+        self.assertAlmostEqual(
+            float(summer_pred[n_weather + 1] - summer_pred[n_weather]),
+            expected_summer_step,
+            places=3,
+        )
+        # And the two seasons must disagree -- if they don't, the correction
+        # is silently a no-op.
+        self.assertNotAlmostEqual(
+            float(summer_pred[n_weather + 1]),
+            float(winter_pred[n_weather + 1]),
+            places=1,
+        )
+
+
 class TestCoerceTzDatetime(TestCase):
     """Tests the normalization point for the start datetime.
 

@@ -94,8 +94,13 @@ def get_gdh_prediction(
     _duration = duration + 1 if frequency == "hourly" else duration
     climate_data = cgd.forecast_gdh(start_date=start_datetime, forecast=_duration)
 
-    # Connect weather and climate at the proper hour
-    climate_start: int = len(weather_data) + datetime_hour
+    # Connect weather and climate at the proper hour.
+    # BrightSky labels every record with the offset at start_datetime.
+    # NASA POWER LST is local standard time year-round.
+    # So when start_datetime is in DST, the weather frame runs one civil hour ahead
+    # of climate and the seam must be pulled back by one climate hour to stay aligned.
+    dst_correction: int = -1 if start_datetime.dst() else 0
+    climate_start: int = len(weather_data) + datetime_hour + dst_correction
     climate_part = (
         climate_data["GDH_p50"][climate_start:]
         - climate_data["GDH_p50"][climate_start]

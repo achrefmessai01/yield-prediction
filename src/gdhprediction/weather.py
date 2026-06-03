@@ -3,7 +3,6 @@ from collections.abc import Set
 from dataclasses import InitVar, dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any, ClassVar, Self, TypedDict, cast
-from zoneinfo import ZoneInfo
 
 import numpy as np
 from requests import RequestException
@@ -50,7 +49,6 @@ class WeatherRequestData(FieldsHashMxn):
     duration: InitVar[int] = field(default=MAX_DURATION, repr=False)
     date: str = field(init=False)
     last_date: str = field(init=False)
-    gps_tzinfo: ZoneInfo = field(init=False)
 
     def __post_init__(self, start_date: datetime | None, duration: int) -> None:
         # derive correct timezone from lat/lon
@@ -63,7 +61,6 @@ class WeatherRequestData(FieldsHashMxn):
         iso_end_datetime = (_start + timedelta(days=duration)).isoformat()
         object.__setattr__(self, "date", iso_start_datetime)
         object.__setattr__(self, "last_date", iso_end_datetime)
-        object.__setattr__(self, "gps_tzinfo", _tzinfo)
 
     @property
     def latitude(self) -> float:
@@ -170,6 +167,8 @@ class BrightskyDataRequest(DataRequest):
 
 
 class WeatherGdhData(GdhData[WeatherRequestData]):
+
+    __slots__ = ()
 
     PARAMETERS: ClassVar[tuple[BrightSkyFields, ...]] = tuple(
         BRIGHTSKY_FIELDS - {"dew_point"},

@@ -128,6 +128,7 @@ type BrightSkyDataArray = npt.NDArray[np.void]
 
 
 class FieldsHashMxn(ABC):
+    __slots__ = ()
 
     hash_version: ClassVar[int] = 1  # increment this if the hash_fields logic changes
 
@@ -179,9 +180,6 @@ class FieldsHashCoor(DataclassInstance, Protocol):
 
     @property
     def longitude(self) -> float: ...
-
-    @property
-    def gps_tzinfo(self) -> ZoneInfo: ...
 
 
 def to_month_day_hour(timestamp: datetime) -> tuple[int, int, int]:

@@ -118,6 +118,8 @@ class RequestData(FieldsHashMxn):
 
 class ClimateGdhData(GdhData[RequestData]):
 
+    __slots__ = ()
+
     # default parameters for NASA API request
     COMMUNITY: ClassVar[Communities] = "ag"
     FORMAT: ClassVar[Formats] = "csv"
