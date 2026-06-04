@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from typing import Final
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -9,6 +9,7 @@ import numpy as np
 from gdhprediction.apis import (
     Frequency,
     _coerce_tz_midnight,
+    get_current_brightsky_forecast,
     get_gdh_prediction,
 )
 from gdhprediction.config import GdhLocalizedPredictionConfig
@@ -41,14 +42,17 @@ def _run(
     snapped_hour: int,
     frequency: Frequency,
     duration: int = DEFAULT_DURATION,
+    weather_length: int = 240,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Run get_gdh_prediction with mocked weather/climate.
 
     Returns the prediction array, the mocked weather array, the mocked
     climate array, and the ``forecast=`` value passed to climate so each
-    test can assert the horizon explicitly.
+    test can assert the horizon explicitly. ``weather_length`` controls how
+    many forecast hours BrightSky is mocked to return (0 simulates a window
+    entirely past the ~10-day horizon; a small value simulates truncation).
     """
-    weather_arr = _weather(snapped_hour)
+    weather_arr = _weather(snapped_hour, weather_length)
     # apis.get_gdh_prediction asks climate for `duration + 1` days in hourly
     # mode so the final array can be truncated cleanly to `duration * 24`.
     expected_forecast = duration + 1 if frequency == "hourly" else duration
@@ -199,6 +203,27 @@ class TestStitchContinuity(TestCase):
             datetime_hour=14,
         )
 
+    def test_hourly_short_weather_is_stitched_to_full_duration(self) -> None:
+        """A future-dated start can make BrightSky truncate to far fewer than
+        240 hours. The seam anchors on len(weather_data), so the climate leg
+        backfills and the output is still exactly `duration * 24`.
+        """
+        prediction, weather, climate, forecast = _run(
+            start=datetime(2024, 6, 15, 12, 0),
+            snapped_hour=12,
+            frequency="hourly",
+            weather_length=95,  # < duration_hours; forces a climate extension
+        )
+        self.assertEqual(len(weather), 95)
+        self.assertEqual(forecast, DEFAULT_DURATION + 1)
+        self.assertHourlyInvariants(
+            prediction,
+            weather,
+            climate,
+            snapped_hour=12,
+            datetime_hour=12,
+        )
+
 
 BERLIN: Final = ZoneInfo("Europe/Berlin")
 TOKYO: Final = ZoneInfo("Asia/Tokyo")
@@ -289,6 +314,86 @@ class TestDstSeamCorrection(TestCase):
         )
 
 
+class TestClimatologyOnlyFallback(TestCase):
+    """When BrightSky returns no usable forecast hours -- either an empty
+    response (window entirely past the horizon) or a short response that the
+    snap-crop empties -- the prediction must fall back to climatology only,
+    keep its full length, and never index into an empty weather array.
+
+    These pin three regressions found while hardening the seam:
+      * IndexError on the re-anchor / seam tail access for empty weather,
+      * the same crash re-hidden inside the non-empty branch by a refactor,
+      * a negative ``climate_start`` wrap when datetime_hour == 0 in DST.
+    """
+
+    def _assert_climatology_only(
+        self,
+        prediction: np.ndarray,
+        climate: np.ndarray,
+        datetime_hour: int,
+        duration_hours: int,
+    ) -> None:
+        # Full length preserved and the leg starts at zero (re-anchored).
+        self.assertEqual(prediction.shape, (duration_hours,))
+        self.assertAlmostEqual(float(prediction[0]), 0.0, places=4)
+        # With no weather, climate_start == datetime_hour (no DST correction),
+        # so prediction[k] == climate[datetime_hour + k] - climate[datetime_hour].
+        expected = (
+            climate["GDH_p50"][datetime_hour : datetime_hour + duration_hours]
+            - climate["GDH_p50"][datetime_hour]
+        )
+        np.testing.assert_array_almost_equal(prediction, expected)
+
+    def test_empty_weather_hourly_falls_back_to_climatology(self) -> None:
+        with self.assertLogs("gdhprediction.apis", level="WARNING"):
+            prediction, _weather_arr, climate, _forecast = _run(
+                start=datetime(2024, 6, 15, 14, 30),
+                snapped_hour=0,
+                frequency="hourly",
+                weather_length=0,
+            )
+        self._assert_climatology_only(
+            prediction,
+            climate,
+            datetime_hour=14,
+            duration_hours=DEFAULT_DURATION * 24,
+        )
+
+    def test_empty_weather_daily_in_dst_returns_full_duration(self) -> None:
+        """Regression: in DST with datetime_hour == 0 the old code computed
+        ``climate_start = 0 + 0 - 1 == -1``, wrapping to the climate tail and
+        collapsing the daily output to length 0. The output must be `duration`.
+        """
+        # July midnight in Berlin is CEST (DST); daily coerces to midnight.
+        prediction, _weather_arr, _climate, _forecast = _run(
+            start=datetime(2024, 7, 15, 0, 0),
+            snapped_hour=0,
+            frequency="daily",
+            weather_length=0,
+        )
+        self.assertEqual(prediction.shape, (DEFAULT_DURATION,))
+
+    def test_short_weather_cropped_to_empty_falls_back_to_climatology(self) -> None:
+        """Regression: a near-horizon start returns only a few rows; the snap
+        crop (weather_start in [0, 5]) can empty them. The re-anchor and seam
+        accesses must not run against the emptied array.
+        """
+        # snapped_hour=18, requested hour 23 -> weather_start = 5; only 3 rows
+        # returned -> _weather_data[5:] is empty.
+        prediction, _weather_arr, climate, _forecast = _run(
+            start=datetime(2024, 6, 15, 23, 0),
+            snapped_hour=18,
+            frequency="hourly",
+            weather_length=3,
+        )
+        self._assert_climatology_only(
+            prediction,
+            climate,
+            datetime_hour=23,
+            duration_hours=DEFAULT_DURATION * 24,
+        )
+
+
 class TestCoerceTzDatetime(TestCase):
     """Tests the normalization point for the start datetime.
 
@@ -362,3 +467,86 @@ class TestCoerceTzMidnight(TestCase):
         result = _coerce_tz_midnight(date(2024, 6, 15), BERLIN)
         self.assertEqual(result.tzinfo, BERLIN)
         self.assertEqual((result.hour, result.minute), (0, 0))
+
+
+# A fixed "now" in Berlin so the past / horizon validations are deterministic.
+FIXED_NOW: Final = datetime(2024, 6, 15, 9, 0, tzinfo=BERLIN)
+
+
+class TestGetCurrentBrightskyForecast(TestCase):
+    """Covers the pure input-validation branches and the cache side effect.
+
+    BrightSky's network call is mocked; ``WeatherRequestData`` runs for real
+    (it is pure) so the forecast_start propagation is also exercised. The
+    provider's truncation / 404 behaviour is its own contract and is not
+    asserted against the live API here.
+    """
+
+    def _call(
+        self,
+        *,
+        hour: int = 12,
+        future_date: date | None = None,
+        cache: bool = True,
+        now: datetime = FIXED_NOW,
+    ) -> tuple[np.ndarray, np.ndarray, MagicMock, MagicMock]:
+        fake_array = np.arange(5, dtype=np.float32)
+        with (
+            patch("gdhprediction.apis.datetime") as dt,
+            patch("gdhprediction.apis.BrightskyDataRequest") as brightsky_cls,
+            patch("gdhprediction.apis.CacheManager") as cache_cls,
+        ):
+            dt.now.return_value = now
+            dt.combine.side_effect = datetime.combine
+            brightsky_cls.return_value.request_brightsky_data.return_value = fake_array
+            result = get_current_brightsky_forecast(
+                LAT,
+                LON,
+                hour,  # type: ignore[arg-type]
+                future_date,
+                cache=cache,
+            )
+        return result, fake_array, brightsky_cls, cache_cls
+
+    def test_invalid_hour_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            self._call(hour=3)
+
+    def test_future_date_in_the_past_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            self._call(hour=12, future_date=date(2024, 6, 14))
+
+    def test_forecast_start_in_the_past_raises(self) -> None:
+        # 00:00 today is > 1h before the fixed now (09:00).
+        with self.assertRaises(ValueError):
+            self._call(hour=0, future_date=date(2024, 6, 15))
+
+    def test_forecast_start_beyond_horizon_raises(self) -> None:
+        # 10 days out exceeds the 9-day horizon guard.
+        with self.assertRaises(ValueError):
+            self._call(hour=12, future_date=date(2024, 6, 25))
+
+    def test_none_future_date_defaults_to_today_and_returns_array(self) -> None:
+        result, fake_array, brightsky_cls, _cache_cls = self._call(
+            hour=12,
+            future_date=None,
+        )
+        np.testing.assert_array_equal(result, fake_array)
+        # forecast_start was built from today's date at the requested hour.
+        wrd = brightsky_cls.call_args.args[0]
+        self.assertTrue(wrd.date.startswith("2024-06-15T12:00"))
+
+    def test_cache_true_writes_raw(self) -> None:
+        _result, _fake, _brightsky_cls, cache_cls = self._call(hour=12, cache=True)
+        cache_cls.assert_called_once()
+        # written to the volatile (non-persistent) cache as the raw format.
+        self.assertFalse(cache_cls.call_args.kwargs["persistent"])
+        cache_cls.return_value.write_to_cache.assert_called_once()
+        self.assertEqual(
+            cache_cls.return_value.write_to_cache.call_args.kwargs["cache_fmt"],
+            "raw",
+        )
+
+    def test_cache_false_skips_write(self) -> None:
+        _result, _fake, _brightsky_cls, cache_cls = self._call(hour=12, cache=False)
+        cache_cls.assert_not_called()
