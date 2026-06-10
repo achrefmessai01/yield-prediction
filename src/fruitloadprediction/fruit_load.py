@@ -33,10 +33,6 @@ class FruitLoadModel:
         self._config = config
         self.bins = bins
 
-        # TODO: use actual supabase data
-        days_since_harvest = [0] * 10 + [2] *10 + [3] * 5 + [6] * 5
-        self.set_data_from_supabase(days_since_harvest, 100, 30)
-
     def set_data_from_supabase(self, days_since_harvest: List[int], plants_per_row: int, total_number_rows: int):
         self.days_since_harvest = days_since_harvest
         self.plants_per_row = plants_per_row
@@ -66,6 +62,8 @@ class FruitLoadModel:
                     raise ValueError("Camera "+str(cam)+" has not data for visible number of plants, please add it in the config")
                 cur_cam_weight = cur_camera_weights[cam]
                 cur_visible_plants = self._config.visible_plants_per_camera[cam]
+                if cur_visible_plants <= 0:
+                    raise ValueError("Camera "+str(cam)+" has no visible plants, please add it in the config")
                 for stage, count in cur_bins.items():
                     if not stage in cur_estimated_fruit_load.keys():
                         raise ValueError("Stage "+str(stage)+" is not in growing_stages_order")

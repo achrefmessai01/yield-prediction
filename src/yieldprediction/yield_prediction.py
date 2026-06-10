@@ -14,6 +14,9 @@ from fruitloadprediction.fruit_load import FruitLoadModel
 from shared.configs import FruitloadPredictionConfig, YieldPredictionConfig, GdhPredictionConfig
 from shared.paths import FruitloadPredictionPaths, YieldPredictionPaths, GdhPredictionPaths
 
+from shared.supabase_interface import SupaBaseInterface
+from shared.influxdb_interface import InfluxDBInterface
+
 from gdhprediction.apis import get_gdh_prediction
 
 class YieldPrediction:
@@ -28,9 +31,14 @@ class YieldPrediction:
 
     tenant: str
     batch: str
+
+    influx: InfluxDBInterface
+    supabase: SupaBaseInterface
+
+    start_date: datetime.datetime
     
 
-    def __init__(self, tenant: str, batch: str) -> None:
+    def __init__(self, tenant: str, batch: str, start_date: datetime.datetime, supabase: SupaBaseInterface, influx: InfluxDBInterface) -> None:
 
         if tenant == "":
             raise ValueError("Tenant cannot be empty")
@@ -38,6 +46,11 @@ class YieldPrediction:
             raise ValueError("Batch cannot be empty")
         self.tenant = tenant
         self.batch = batch
+
+        self.influx = influx
+        self.supabase = supabase
+
+        self.start_date = start_date
 
         self.paths = YieldPredictionPaths(tenant=tenant, batch=batch)
         if not os.path.exists(self.paths.model_config):
@@ -49,7 +62,10 @@ class YieldPrediction:
             raise FileNotFoundError(f"Model config file not found at {fruitload_paths.model_config}")
         fruitload_config = FruitloadPredictionConfig.from_path(fruitload_paths.model_config)
         flm = FruitLoadModel(fruitload_config, self.get_bins())
-        self.estimated_fruit_load, self. growing_stages_ordered = flm.get_current_fruit_load()
+        flm.set_data_from_supabase(self.supabase.get_days_since_harvest(self.tenant, self.batch),
+                                   self.supabase.get_plants_per_row(self.tenant, self.batch), 
+                                   self.supabase.get_total_number_rows(self.tenant, self.batch))
+        self.estimated_fruit_load, self.growing_stages_ordered = flm.get_current_fruit_load()
 
         gdh_paths = GdhPredictionPaths()
         if not os.path.exists(gdh_paths.model_config):
@@ -80,35 +96,45 @@ class YieldPrediction:
             last_val = self.estimated_gdh[day]
             self.estimated_gdh[day] = new_val
 
+    # get data from Influx and convert to bins
     def get_bins(self) -> Dict[str, Dict[str, int]]:
-        # TODO: add db request to get bins, return dummy for local testing
-        bins = {
-            "camera1" : {
-                "Flower" : 39,
-                "Flower_Fruit" : 53,
-                "Green_Fruit" : 45,
-                "Green_White_Fruit" : 16,
-                "White_Red_Fruit" : 13,
-                "Red_Fruit" : 1
-            },
-            "camera2" : {
-                "Flower" : 36,
-                "Flower_Fruit" : 11,
-                "Green_Fruit" : 24,
-                "Green_White_Fruit" : 7, 
-                "White_Red_Fruit" : 20,
-                "Red_Fruit" : 17
-            },
-            "camera3" : {
-                "Flower" : 5,
-                "Flower_Fruit" : 8,
-                "Green_Fruit" : 12,
-                "Green_White_Fruit" : 35,
-                "White_Red_Fruit" : 15,
-                "Red_Fruit" : 37
-            }
-        }
+        bins = dict()
+
+        # since we give the start date we need to give a date before our start date
+        # we will use one day here since the data is otherwise too old anyway
+        data = self.influx.get_strawberry_count_data(self.tenant, self.batch, self.start_date-datetime.timedelta(days=1))
+        # for each camera get the data at timestamp thats closest to our start date but still before the start date
+        data_per_camera = dict()
+        for a_date_str in data.keys():
+            a_date = datetime.datetime.strptime(a_date_str, "%Y_%m_%d_%H_%M_%S")
+            # we can not use data in the future (from perspective of start date)
+            if a_date > self.start_date:
+                continue
+            for a_camera in data[a_date_str].keys():
+                if not a_camera in data_per_camera:
+                    data_per_camera[a_camera] = dict()
+                    data_per_camera[a_camera]["date"] = a_date
+                    data_per_camera[a_camera]["data"] = data[a_date_str][a_camera]
+                elif data_per_camera[a_camera]["date"] < a_date:
+                    # here the current date is closer to the start date than the previous one
+                    data_per_camera[a_camera]["date"] = a_date
+                    data_per_camera[a_camera]["data"] = data[a_date_str][a_camera]
+        
+        # we should have data for each camera now
+        for a_camera in data_per_camera.keys():
+            bins[a_camera] = dict()
+            # prefill the dict with all the stages we have
+            for a_stage in list(self._config.class_index_name_map.values()):
+                bins[a_camera][a_stage] = 0
+            for a_bb_index in data_per_camera[a_camera]["data"].keys():
+                cur_stage = data_per_camera[a_camera]["data"][a_bb_index]["class"]
+                if not cur_stage in self._config.class_index_name_map:
+                    raise ValueError(f"Unknown class index {cur_stage}")
+                cur_stage = self._config.class_index_name_map[cur_stage]
+                bins[a_camera][cur_stage] += 1
+
         return bins
+
 
     def get_prediction(self, store_for_training: bool = False) -> Tuple[List[List[int]], List[List[float]]]:
         prediction_count = list()

@@ -24,7 +24,7 @@ class FruitloadPredictionConfig(FieldsHashMxn):
     """Configuration for fruitload prediction."""
 
     # default config
-    visible_plants_per_camera: Dict[str, int] = field(default_factory=lambda:{
+    visible_plants_per_camera: Dict[str, float] = field(default_factory=lambda:{
         "camera1": 4,
         "camera2": 4,
         "camera3": 2
@@ -220,6 +220,14 @@ class YieldPredictionConfig(FieldsHashMxn):
         "Green_Fruit": 0.3,
         "Green_White_Fruit": 0.3,
         "White_Red_Fruit": 0.3
+    })
+    class_index_name_map: Dict[int, str] = field(default_factory=lambda:{
+        1 : "Flower",
+        2 : "Flower_Fruit",
+        3 : "Green_Fruit",
+        4 : "Green_White_Fruit",
+        5 : "White_Red_Fruit",
+        6 : "Red_Fruit"
     })
 
 

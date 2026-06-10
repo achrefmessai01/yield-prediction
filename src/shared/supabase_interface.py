@@ -1,8 +1,9 @@
 import os
+import numpy as np
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-from typing import List, Dict
+from typing import List, Dict, Tuple
 import datetime
 
 
@@ -19,6 +20,26 @@ class SupaBaseInterface:
             return tenant_id[0]["id"]
         else:
             raise ValueError(f"No id found for tenant {tenant}")
+        
+    def get_all_tenant_with_batches(self) -> Dict[str, List[str]]:
+        tenant_batch_dict = dict()
+        all_tenants = self.get_tenant_list()
+        for t in all_tenants:
+            if t in tenant_batch_dict.keys():
+                continue
+            t_id = self.get_tetant_id(t)
+            batch_list = self.get_batch_list(t_id)
+            if len(batch_list) > 0:
+                tenant_batch_dict[t] = batch_list
+        return tenant_batch_dict
+
+    def get_species(self, tenant: str, batch: str) -> str:
+        tenant_id = self.get_tetant_id(tenant)
+        species = self.supabase.table("harvests").select("species").eq("tenantId", tenant_id).eq("batch", batch).execute().data
+        if len(species) > 0:
+            return species[0]["species"]
+        else:
+            raise ValueError(f"No species found for tenant {tenant} and batch {batch}")
 
     def get_days_since_harvest(self, tenant: str, batch: str) -> List[int]:
         # to get the days sionce harvest for each row we need to get each harvest entry in the database for current tenant/batch that has the complete flag
@@ -74,6 +95,14 @@ class SupaBaseInterface:
             tenant_list.append(tenant["name"])
         return tenant_list
     
+    def get_batch_list(self, tenant_id: str) -> List[str]:
+        batches = self.supabase.table("harvests").select("batch").eq("tenantId", tenant_id).execute().data
+        batch_list = list()
+        for batch in batches:
+            if not batch["batch"] in batch_list:
+                batch_list.append(batch["batch"])
+        return batch_list
+    
     def get_tenant_influx_bucket(self, tenant: str) -> str:
         tenant_id = self.get_tetant_id(tenant)
         tenants = self.supabase.table("tenants").select("influxBucketName").eq("id", tenant_id).execute().data
@@ -85,19 +114,37 @@ class SupaBaseInterface:
     
     def get_greenhouse(self, tenant: str, batch: str) -> str:
         tenant_id = self.get_tetant_id(tenant)
-        greenhouse_list = self.supabase.table("harvests").select("greenhouse").eq("tenantId", tenant_id).eq("batch", batch).eq("status", "").execute().data
+        greenhouse_list = self.supabase.table("harvests").select("greenhouse").eq("tenantId", tenant_id).eq("batch", batch).eq("status", "draft").execute().data
         if len(greenhouse_list) > 0:
             greenhouse = greenhouse_list[0]["greenhouse"]
             for g in greenhouse_list:
-                if not g == greenhouse:
+                if not g["greenhouse"] == greenhouse:
                     raise ValueError(f"Multiple greenhouses found for tenant {tenant} and batch {batch}")
             return greenhouse
+        else:
+            raise ValueError(f"No data found for tenant {tenant} and batch {batch}")
+        
+    # TODO: this does not yet work due to missing implementation in the frontend
+    def get_rows_per_batch(self, tenant: str, batch:str) -> Tuple[int]:
+        tenant_id = self.get_tetant_id(tenant)
+        batch_list = self.supabase.table("harvests").select("*").eq("tenantId", tenant_id).eq("batch", batch).eq("status", "draft").execute().data
+        if len(batch_list) > 0:
+            # take the latest here
+            latest_row = self.__get_latest_data(batch_list, "date")
+            return (latest_row["rowX"], latest_row["rowY"])
         else:
             raise ValueError(f"No data found for tenant {tenant} and batch {batch}")
 
         
     def set_yield_prediction(self, tenant: str, batch: str, yield_prediction: List[List[float]]):
         pass #TODO create new table to set results
+
+    # returns the latest row from a list of rows based on dates in the col date_key
+    def __get_latest_data(data: List, date_key: str) -> List:
+        dates_list = [d[date_key] for d in data]
+        return data[np.argmax(dates_list)]
+
+
         
 
 if __name__ == "__main__":
