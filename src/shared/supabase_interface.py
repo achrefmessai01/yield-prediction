@@ -41,7 +41,7 @@ class SupaBaseInterface:
         else:
             raise ValueError(f"No species found for tenant {tenant} and batch {batch}")
 
-    def get_days_since_harvest(self, tenant: str, batch: str) -> List[int]:
+    def get_days_since_harvest(self, tenant: str, batch: str, date: datetime.datetime) -> List[int]:
         # to get the days sionce harvest for each row we need to get each harvest entry in the database for current tenant/batch that has the complete flag
         tenant_id = self.get_tetant_id(tenant)
         data = self.supabase.table("harvests").select("*").eq("tenantId", tenant_id).eq("batch", batch).eq("status", "completed").execute().data
@@ -53,9 +53,8 @@ class SupaBaseInterface:
         # So the value just needs to be unique which it should be since there can not be a harvest before planting
         planting_date = data[0]["plantingDate"]
         date_format = "%Y-%m-%d"
-        today = datetime.date.today()
         planting_date = datetime.datetime.strptime(planting_date, date_format).date()
-        days_since_planting = (today - planting_date).days
+        days_since_planting = (date.date() - planting_date).days
         days_since_harvest = list()
         for d in range(data[0]["numberOfRows"]):
             days_since_harvest.append(days_since_planting)
@@ -63,7 +62,7 @@ class SupaBaseInterface:
             start_row = a_harvest_entry["rowX"]
             end_row = a_harvest_entry["rowY"]
             cur_harvest_date = datetime.datetime.strptime(a_harvest_entry["date"], date_format).date()
-            cur_days_since_harvest = (today - cur_harvest_date).days
+            cur_days_since_harvest = (date.date() - cur_harvest_date).days
             for r in range(start_row, end_row+1):
                 if days_since_harvest[r] > cur_days_since_harvest:
                     days_since_harvest[r] = cur_days_since_harvest

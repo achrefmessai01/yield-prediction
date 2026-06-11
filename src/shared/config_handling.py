@@ -2,8 +2,8 @@ import os
 import json
 from pathlib import Path
 
-from shared.configs import FruitloadPredictionConfig, GdhPredictionConfig, YieldPredictionConfig
-from shared.paths import FruitloadPredictionPaths, GdhPredictionPaths, YieldPredictionPaths
+from shared.configs import GdhPredictionConfig, YieldPredictionConfig
+from shared.paths import  GdhPredictionPaths, YieldPredictionPaths
 
 from shared.supabase_interface import SupaBaseInterface
 from shared.influxdb_interface import InfluxDBInterface
@@ -12,30 +12,26 @@ from shared.coco_interface import get_coco_classes
 class ConfigHandling:
 
     configs_found: bool = False
-    fruitload_config: FruitloadPredictionConfig = None
     yield_prediction_config: YieldPredictionConfig = None
     gdh_prediction_config: GdhPredictionConfig = None
 
 
-    def __init__(self, tenant: str, batch: str):
+    def __init__(self, tenant: str, batch: str, greenhouse: str):
         self.tenant = tenant
         self.batch = batch
 
-        self.fruitload_paths = FruitloadPredictionPaths(tenant=tenant, batch=batch)
         self.yield_prediction_paths = YieldPredictionPaths(tenant=tenant, batch=batch)
-        self.gdh_prediction_paths = GdhPredictionPaths()
+        self.gdh_prediction_paths = GdhPredictionPaths(tenant=tenant, greenhouse=greenhouse)
 
     # just get the default configs
     def create_default_configs(self):
-        self.fruitload_config = FruitloadPredictionConfig()
         self.yield_prediction_config = YieldPredictionConfig()
         self.gdh_prediction_config = GdhPredictionConfig()
 
     # check if files are present and if yes load from there
     def load_from_files(self):
-        if os.path.exists(self.fruitload_paths.model_config) and os.path.exists(self.yield_prediction_paths.model_config) and os.path.exists(self.gdh_prediction_paths.model_config):
+        if os.path.exists(self.yield_prediction_paths.model_config) and os.path.exists(self.gdh_prediction_paths.model_config):
             self.configs_found = True
-            self.fruitload_config = FruitloadPredictionConfig.from_path(self.fruitload_paths.model_config)
             self.yield_prediction_config = YieldPredictionConfig.from_path(self.yield_prediction_paths.model_config)
             self.gdh_prediction_config = GdhPredictionConfig.from_path(self.gdh_prediction_paths.model_config)
             self.configs_found = True
@@ -65,8 +61,8 @@ class ConfigHandling:
         self.yield_prediction_config.class_index_name_map = class_index_name_map
         classes = list(class_index_name_map.values())
         # set everything in the config
-        self.fruitload_config.growing_stages_order = classes
-        self.fruitload_config.count_correction_factor = {c:1 for c in classes}
+        self.yield_prediction_config.growing_stages_order = classes
+        self.yield_prediction_config.count_correction_factor = {c:1 for c in classes}
         self.yield_prediction_config.gdh_percent_stage_to_stage = {c:(1./(len(classes)-1)) for c in classes[:-1]}
         self.yield_prediction_config.constrain_min_gdh_percent_stage_to_stage = {c:((1./(len(classes)-1))*0.5) for c in classes[:-1]}
         self.yield_prediction_config.constrain_max_gdh_percent_stage_to_stage = {c:((1./(len(classes)-1))*1.5) for c in classes[:-1]}
@@ -79,7 +75,7 @@ class ConfigHandling:
             for c in bb_data[t].keys():
                 if not c in camera_list:
                     camera_list.append(c)
-        self.fruitload_config.visible_plants_per_camera = {c:0 for c in camera_list}
-        self.fruitload_config.camera_row_map = {c:0 for c in camera_list} # TODO set row when they are correct in the influx later
+        self.yield_prediction_config.visible_plants_per_camera = {c:0 for c in camera_list}
+        self.yield_prediction_config.camera_row_map = {c:0 for c in camera_list} # TODO set row when they are correct in the influx later
 
         

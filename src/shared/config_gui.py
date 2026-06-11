@@ -7,14 +7,12 @@ from dotenv import load_dotenv
 from datetime import datetime
 
 from dataclasses import fields, is_dataclass
-from typing import Callable, Type, Optional, Sequence
+from typing import Callable, Type, Optional, Sequence, get_args
 
-
-from shared.configs import FruitloadPredictionConfig, GdhPredictionConfig, YieldPredictionConfig
 from shared.config_handling import ConfigHandling
-from shared.paths import FruitloadPredictionPaths, GdhPredictionPaths, YieldPredictionPaths
 
 from yieldprediction.yield_prediction import YieldPrediction
+from gdhprediction.utils import Transforms
 
 from shared.supabase_interface import SupaBaseInterface
 from shared.influxdb_interface import InfluxDBInterface
@@ -43,8 +41,9 @@ general functions ----------------------------
 def load_configs():
     global selected_tenant, selected_batch
     global configs
+    global supabase_interface
 
-    configs = ConfigHandling(selected_tenant, selected_batch)
+    configs = ConfigHandling(selected_tenant, selected_batch, supabase_interface.get_greenhouse(selected_tenant, selected_batch))
     try:
         configs.load_from_files()
     except:
@@ -53,7 +52,7 @@ def load_configs():
 
 def update_gdh_percent_stage_to_stage():
     global configs
-    configs.yield_prediction_config.gdh_percent_stage_to_stage = {stage : 1/(len(configs.fruitload_config.growing_stages_order)-1) for stage in configs.fruitload_config.growing_stages_order[:-1]}
+    configs.yield_prediction_config.gdh_percent_stage_to_stage = {stage : 1/(len(configs.yield_prediction_config.growing_stages_order)-1) for stage in configs.yield_prediction_config.growing_stages_order[:-1]}
 
 '''
 GUI data ----------------------------
@@ -101,11 +100,11 @@ def update_camera_after_removing():
     global camera_row_map_renderer, visible_plants_per_camera_renderer
     
     # check which one is larger
-    if len(configs.fruitload_config.visible_plants_per_camera.keys()) > len(configs.fruitload_config.camera_row_map.keys()):
-        configs.fruitload_config.visible_plants_per_camera = {k:v for k,v in configs.fruitload_config.visible_plants_per_camera.items() if k in configs.fruitload_config.camera_row_map.keys()}
+    if len(configs.yield_prediction_config.visible_plants_per_camera.keys()) > len(configs.yield_prediction_config.camera_row_map.keys()):
+        configs.yield_prediction_config.visible_plants_per_camera = {k:v for k,v in configs.yield_prediction_config.visible_plants_per_camera.items() if k in configs.yield_prediction_config.camera_row_map.keys()}
         visible_plants_per_camera_renderer.refresh()
-    elif len(configs.fruitload_config.visible_plants_per_camera.keys()) < len(configs.fruitload_config.camera_row_map.keys()):
-        configs.fruitload_config.camera_row_map = {k:v for k,v in configs.fruitload_config.camera_row_map.items() if k in configs.fruitload_config.visible_plants_per_camera.keys()}
+    elif len(configs.yield_prediction_config.visible_plants_per_camera.keys()) < len(configs.yield_prediction_config.camera_row_map.keys()):
+        configs.yield_prediction_config.camera_row_map = {k:v for k,v in configs.yield_prediction_config.camera_row_map.items() if k in configs.yield_prediction_config.visible_plants_per_camera.keys()}
         camera_row_map_renderer.refresh()
     else:
         pass
@@ -140,12 +139,10 @@ def apply():
 
     # store configs locally
     configs.yield_prediction_config.write_config(configs.yield_prediction_paths.model_config)
-    configs.fruitload_config.write_config(configs.fruitload_paths.model_config)
     configs.gdh_prediction_config.write_config(configs.gdh_prediction_paths.model_config)
     
-    cur_yield_prediction = YieldPrediction(selected_tenant, selected_batch, selected_datetime, supabase_interface, influx_interface)
     try:
-        cur_yield_prediction = YieldPrediction(selected_tenant, selected_batch, selected_datetime, supabase_interface, influx_interface)
+        cur_yield_prediction = YieldPrediction(selected_tenant, selected_batch, selected_datetime, configs.gdh_prediction_config, supabase_interface, influx_interface)
     except Exception as e:
         with ui.dialog() as error_dialog, ui.card():
             error_label = ui.label('There was an error while running the yield prediction:\n'+str(e))
@@ -282,7 +279,7 @@ def editable_number_dict(
                     label=label_fn(key, value, i),
                     value=cast(value),
                     validation=safe_validation,
-                ).style('flex: 1').props(
+                ).props('lang=en-US').style('flex: 1').props(
                     f"step={step}"
                 ).on(
                     'update:model-value',
@@ -413,12 +410,12 @@ with ui.row().classes('w-full gap-4 items-stretch'):
                         ui.number(
                             label="Latitude",
                             value=configs.yield_prediction_config.latitude
-                        ).bind_value(configs.yield_prediction_config, 'latitude')
+                        ).props('inputmode=decimal lang=en-US').bind_value(configs.yield_prediction_config, 'latitude')
 
                         ui.number(
                             label="Longitude",
                             value=configs.yield_prediction_config.longitude
-                        ).bind_value(configs.yield_prediction_config, 'longitude')
+                        ).props('inputmode=decimal lang=en-US').bind_value(configs.yield_prediction_config, 'longitude')
                         
                         ui.number(
                             label="Total needed GDH",
@@ -432,12 +429,12 @@ with ui.row().classes('w-full gap-4 items-stretch'):
                         ui.number(
                             label="Average weight per harvested fruit (g)",
                             value=configs.yield_prediction_config.avg_weight
-                        ).bind_value(configs.yield_prediction_config, 'avg_weight')
+                        ).props('inputmode=decimal lang=en-US').bind_value(configs.yield_prediction_config, 'avg_weight')
 
                     with ui.card().classes('flex-1 gap-4 items-stretch'):
                         ui.label('Plants per Camera:')
                         visible_plants_per_camera_renderer = editable_number_dict(
-                            lambda: configs.fruitload_config.visible_plants_per_camera,
+                            lambda: configs.yield_prediction_config.visible_plants_per_camera,
                             label_fn=lambda camera, value, i:
                                 f"Plants seen by camera {camera}",
                             cast=float,
@@ -449,7 +446,7 @@ with ui.row().classes('w-full gap-4 items-stretch'):
                     with ui.card().classes('flex-1 gap-4 items-stretch'):
                         ui.label('Row per Camera:')
                         camera_row_map_renderer = editable_number_dict(
-                            lambda: configs.fruitload_config.camera_row_map,
+                            lambda: configs.yield_prediction_config.camera_row_map,
                             label_fn=lambda camera, value, i:
                                 f"Rows seen by camera {camera}",
                             cast=int,
@@ -459,10 +456,28 @@ with ui.row().classes('w-full gap-4 items-stretch'):
                             allow_removing=True
                         )
 
+
+                with ui.column().classes('flex-1 gap-4 items-stretch'):
+                    with ui.card().classes('flex-1 gap-4 items-stretch'):
+                        ui.label('Ripeness stage order:')
+                        ripeness_stage_order_renderer = reorderable_list(configs.yield_prediction_config.growing_stages_order, allow_removing=True)
+
+                    with ui.card().classes('flex-1 gap-4 items-stretch'):
+                        ui.label('GDH Percent Stage to Stage:')
+                        gdh_percent_stage_to_stage_gui_renderer = editable_number_dict(
+                            lambda: configs.yield_prediction_config.gdh_percent_stage_to_stage,
+                            label_fn=lambda stage, value, i:
+                                f"{stage} -> {configs.yield_prediction_config.growing_stages_order[i+1]}",
+                            cast=float,
+                            step=0.1,
+                            min_value=0,
+                            validation=lambda v: 'Must be > 0' if v is None or v <= 0 else None,
+                        )
+
                     with ui.card().classes('flex-1 gap-4 items-stretch'):
                         ui.label('Count correction factor for each stage:')
                         count_correction_factor_renderer = editable_number_dict(
-                            lambda: configs.fruitload_config.count_correction_factor,
+                            lambda: configs.yield_prediction_config.count_correction_factor,
                             label_fn=lambda stage, value, i:
                                 f"Factor of stage {stage}",
                             cast=float,
@@ -471,28 +486,36 @@ with ui.row().classes('w-full gap-4 items-stretch'):
                             validation=lambda v: 'Must be > 0' if v is None or v <= 0 else None,
                         )
 
-
-                with ui.column().classes('flex-1 gap-4 items-stretch'):
+                    # GDH prediction
                     with ui.card().classes('flex-1 gap-4 items-stretch'):
-                        ui.label('Ripeness stage order:')
-                        ripeness_stage_order_renderer = reorderable_list(configs.fruitload_config.growing_stages_order, allow_removing=True)
+                        ui.label('GDH Prediction Config')
+                        ui.number(
+                            label="GDH Base",
+                            value=configs.gdh_prediction_config.gdh_base
+                        ).props('inputmode=decimal lang=en-US').style('flex: 1').props(
+                            f"step=0.1"
+                        ).bind_value(configs.gdh_prediction_config, 'gdh_base')
 
-                    with ui.card().classes('flex-1 gap-4 items-stretch'):
-                        ui.label('GDH Percent Stage to Stage:')
-                        gdh_percent_stage_to_stage_gui_renderer = editable_number_dict(
-                            lambda: configs.yield_prediction_config.gdh_percent_stage_to_stage,
-                            label_fn=lambda stage, value, i:
-                                f"{stage} -> {configs.fruitload_config.growing_stages_order[i+1]}",
-                            cast=float,
-                            step=0.1,
-                            min_value=0,
-                            validation=lambda v: 'Must be > 0' if v is None or v <= 0 else None,
-                        )
+                        ui.number(
+                            label="Temperature shift",
+                            value=configs.gdh_prediction_config.temperature_shift
+                        ).props('inputmode=decimal lang=en-US').style('flex: 1').props(
+                            f"step=0.1"
+                        ).bind_value(configs.gdh_prediction_config, 'temperature_shift')
+
+                        ui.number(
+                            label="Solar factor",
+                            value=configs.gdh_prediction_config.solar_factor
+                        ).props('inputmode=decimal lang=en-US').style('flex: 1').props(
+                            f"step=0.01"
+                        ).bind_value(configs.gdh_prediction_config, 'solar_factor')
 
 
-        
-        with ui.card().classes('w-full min-h-[200px]'):
-            ui.label('GDH Prediction Config')
+                        ui.select(
+                            options=list(get_args(Transforms)),
+                            label='Transform key',
+                        ).style('flex: 1').bind_value(configs.gdh_prediction_config, 'transform_key')
+
 
     # RIGHT SIDE for plots
     with ui.column().classes('flex-1 gap-4'):
