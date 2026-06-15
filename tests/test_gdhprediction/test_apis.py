@@ -12,8 +12,8 @@ from gdhprediction.apis import (
     get_current_brightsky_forecast,
     get_gdh_prediction,
 )
+from gdhprediction.config import GdhLocalizedPredictionConfig
 from gdhprediction.utils import coerce_tz_datetime
-from shared.configs import GdhLocalizedPredictionConfig
 
 WEATHER_DTYPE = np.dtype([("HR", "<u1"), ("GDH", "<f4")])
 CLIMATE_DTYPE = np.dtype([("GDH_p50", "<f4")])

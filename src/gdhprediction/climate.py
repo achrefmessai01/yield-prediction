@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from shared.configs import GdhPredictionConfig
+from gdhprediction.config import GdhPredictionConfig
 from gdhprediction.request import DataRequest, GdhData
 from gdhprediction.utils import (
     DATETIME_UNITS,
