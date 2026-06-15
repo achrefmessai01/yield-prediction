@@ -84,7 +84,7 @@ class FruitLoadModel:
                     raise ValueError("Camera "+str(cam)+" has no visible plants, please add it in the config")
                 for stage, count in cur_bins.items():
                     if not stage in cur_estimated_fruit_load.keys():
-                        raise ValueError("Stage "+str(stage)+" is not in growing_stages_order")
+                        continue
                     # weight each cam by the calculated weight, since it sums to 1 we can just use the sum
                     # for the count we need to calc the count per plant (based on number plants the current cam sees) first and multiply that by the plants per row to calc for the whole row
                     cur_estimated_fruit_load[stage] += round(cur_cam_weight*((count/cur_visible_plants)*self.plants_per_row))

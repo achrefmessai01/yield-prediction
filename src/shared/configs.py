@@ -1,8 +1,20 @@
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, fields, field
+from dataclasses import KW_ONLY, asdict, dataclass, fields, field
 from pathlib import Path
-from typing import Any, Self, assert_never, get_type_hints
-from typing import Dict, List
+from typing import (
+    Any,
+    Literal,
+    Self,
+    TypedDict,
+    List,
+    Dict,
+    assert_never,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
+
 from pydantic import TypeAdapter
 
 import yaml
@@ -68,11 +80,18 @@ class Config(FieldsHashMxn):
         with config_yaml.open("w", encoding="utf-8") as fh:
             yaml.safe_dump(asdict(self), fh)
 
+class _GdhPredictionData(TypedDict):
+    gdh_base: float
+    temperature_shift: float
+    solar_factor: float
+    transform_key: Transforms
+
 
 @dataclass(frozen=False, slots=True)
 class GdhPredictionConfig(Config):
     """Configuration for gdh prediction."""
 
+    #_: KW_ONLY
     gdh_base: float = 4.5
     temperature_shift: float = 2.0
     solar_factor: float = 0.01
@@ -92,6 +111,44 @@ class GdhPredictionConfig(Config):
                 assert_never(key)
 
 
+@dataclass(frozen=False, slots=True)
+class GdhLocalizedPredictionConfig(GdhPredictionConfig):
+    """Localized configuration for gdh prediction, including GPS coordinates."""
+
+    latitude: float = 0.0
+    longitude: float = 0.0
+
+
+    def unpack(self) -> tuple[float, float, GdhPredictionConfig]:
+        """Unpack its components: latitude, longitude, and the base transform config."""
+        return (
+            self.latitude,
+            self.longitude,
+            GdhPredictionConfig(
+                gdh_base=self.gdh_base,
+                temperature_shift=self.temperature_shift,
+                solar_factor=self.solar_factor,
+                transform_key=self.transform_key,
+            ),
+        )
+
+    @classmethod
+    def pack(
+        cls,
+        latitude: float,
+        longitude: float,
+        config: GdhPredictionConfig,
+    ) -> "GdhLocalizedPredictionConfig":
+        """Pack the given components into a :class:`GdhLocalizedPredictionConfig`."""
+        return GdhLocalizedPredictionConfig(
+            latitude=latitude,
+            longitude=longitude,
+            gdh_base=config.gdh_base,
+            temperature_shift=config.temperature_shift,
+            solar_factor=config.solar_factor,
+            transform_key=config.transform_key,
+        )
+
 
 
 @dataclass(frozen=False)
@@ -102,10 +159,6 @@ class YieldPredictionConfig(Config):
 
     # ---------- General config ----------
     days_of_prediction: int = 28
-
-    # ---------- Greenhouse config ----------
-    latitude: float = 51.503721859917725
-    longitude: float = 7.050592540313427
 
     # ---------- Plant config ----------
     # percent of gdh needed for each stage to grow to the next one

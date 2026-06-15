@@ -2,7 +2,7 @@ import os
 import json
 from pathlib import Path
 
-from shared.configs import GdhPredictionConfig, YieldPredictionConfig
+from shared.configs import GdhLocalizedPredictionConfig, YieldPredictionConfig
 from shared.paths import  GdhPredictionPaths, YieldPredictionPaths
 
 from shared.supabase_interface import SupaBaseInterface
@@ -13,7 +13,7 @@ class ConfigHandling:
 
     configs_found: bool = False
     yield_prediction_config: YieldPredictionConfig = None
-    gdh_prediction_config: GdhPredictionConfig = None
+    gdh_prediction_config: GdhLocalizedPredictionConfig = None
 
 
     def __init__(self, tenant: str, batch: str, greenhouse: str):
@@ -26,14 +26,14 @@ class ConfigHandling:
     # just get the default configs
     def create_default_configs(self):
         self.yield_prediction_config = YieldPredictionConfig()
-        self.gdh_prediction_config = GdhPredictionConfig()
+        self.gdh_prediction_config = GdhLocalizedPredictionConfig()
 
     # check if files are present and if yes load from there
     def load_from_files(self):
         if os.path.exists(self.yield_prediction_paths.model_config) and os.path.exists(self.gdh_prediction_paths.model_config):
             self.configs_found = True
             self.yield_prediction_config = YieldPredictionConfig.from_path(self.yield_prediction_paths.model_config)
-            self.gdh_prediction_config = GdhPredictionConfig.from_path(self.gdh_prediction_paths.model_config)
+            self.gdh_prediction_config = GdhLocalizedPredictionConfig.from_path(self.gdh_prediction_paths.model_config)
             self.configs_found = True
         else:
             raise FileNotFoundError("One or more model configuration files not found.")

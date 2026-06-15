@@ -11,7 +11,7 @@ import csv
 import datetime
 
 from yieldprediction.fruit_load import FruitLoadModel
-from shared.configs import YieldPredictionConfig, GdhPredictionConfig
+from shared.configs import YieldPredictionConfig, GdhLocalizedPredictionConfig
 from shared.paths import YieldPredictionPaths, GdhPredictionPaths
 
 from shared.supabase_interface import SupaBaseInterface
@@ -38,7 +38,7 @@ class YieldPrediction:
     start_date: datetime.datetime
     
 
-    def __init__(self, tenant: str, batch: str, start_date: datetime.datetime, gdh_config: GdhPredictionConfig, supabase: SupaBaseInterface, influx: InfluxDBInterface) -> None:
+    def __init__(self, tenant: str, batch: str, start_date: datetime.datetime, gdh_config: GdhLocalizedPredictionConfig, supabase: SupaBaseInterface, influx: InfluxDBInterface) -> None:
 
         if tenant == "":
             raise ValueError("Tenant cannot be empty")
@@ -64,8 +64,6 @@ class YieldPrediction:
         self.estimated_fruit_load = flm.get_current_fruit_load()
 
         self.estimated_gdh = get_gdh_prediction(
-            self._config.latitude,
-            self._config.longitude,
             gdh_config,
             frequency="daily"
         )
@@ -82,18 +80,12 @@ class YieldPrediction:
             raise ValueError("The growing stages ordered must match the estimated fruit load keys")
         if self._config.days_of_prediction <= 0:
             raise ValueError("The number of days of prediction must be greater than 0")
-        if self._config.latitude > 90 or self._config.latitude < -90:
-            raise ValueError("The latitude must be between -90 and 90")
-        if self._config.longitude > 180 or self._config.longitude < -180:
-            raise ValueError("The longitude must be between -180 and 180")
         if self._config.total_gdh_needed <= 0:
             raise ValueError("The total gdh needed must be greater than 0")
         if self._config.avg_weight <= 0:
             raise ValueError("The average weight must be greater than 0")
         if not sorted(list(self._config.count_correction_factor.keys())) == sorted(self._config.growing_stages_order):
             raise ValueError("The keys of count_correction_factor must match the growing stages order")
-        if not sorted(list(self._config.class_index_name_map.values())) == sorted(self._config.growing_stages_order):
-            raise ValueError("The values of class_index_name_map must match the growing stages order")
         if not sorted(list(self._config.visible_plants_per_camera.keys())) == sorted(list(self._config.camera_row_map.keys())):
             raise ValueError("The keys of visible_plants_per_camera must match the keys of camera_row_map")
         

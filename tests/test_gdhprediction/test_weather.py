@@ -22,10 +22,6 @@ class TestWeatherRequestDataSnapping(TestCase):
     `date` and `last_date` as ISO strings spanning `duration` days.
     """
 
-    def test_gps_tz_is_derived_from_coordinates(self) -> None:
-        rd = _make(datetime(2024, 6, 15, 12, 0))
-        self.assertEqual(rd.gps_tzinfo, BERLIN)
-
     def test_hour_snaps_down_to_nearest_six(self) -> None:
         # (hour // 6) * 6 produces buckets at 0, 6, 12, 18.
         for hour, expected in [

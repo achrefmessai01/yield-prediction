@@ -51,8 +51,11 @@ def load_configs():
     refresh_all_renders()
 
 def update_gdh_percent_stage_to_stage():
-    global configs
+    global configs, gdh_percent_stage_to_stage_gui_renderer, count_correction_factor_renderer
     configs.yield_prediction_config.gdh_percent_stage_to_stage = {stage : 1/(len(configs.yield_prediction_config.growing_stages_order)-1) for stage in configs.yield_prediction_config.growing_stages_order[:-1]}
+    configs.yield_prediction_config.count_correction_factor = {k:v for k,v in configs.yield_prediction_config.count_correction_factor.items() if k in configs.yield_prediction_config.growing_stages_order}
+    gdh_percent_stage_to_stage_gui_renderer.refresh()
+    count_correction_factor_renderer.refresh()
 
 '''
 GUI data ----------------------------
@@ -409,13 +412,13 @@ with ui.row().classes('w-full gap-4 items-stretch'):
                         
                         ui.number(
                             label="Latitude",
-                            value=configs.yield_prediction_config.latitude
-                        ).props('inputmode=decimal lang=en-US').bind_value(configs.yield_prediction_config, 'latitude')
+                            value=configs.gdh_prediction_config.latitude
+                        ).props('inputmode=decimal lang=en-US').bind_value(configs.gdh_prediction_config, 'latitude')
 
                         ui.number(
                             label="Longitude",
-                            value=configs.yield_prediction_config.longitude
-                        ).props('inputmode=decimal lang=en-US').bind_value(configs.yield_prediction_config, 'longitude')
+                            value=configs.gdh_prediction_config.longitude
+                        ).props('inputmode=decimal lang=en-US').bind_value(configs.gdh_prediction_config, 'longitude')
                         
                         ui.number(
                             label="Total needed GDH",
