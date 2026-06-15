@@ -9,8 +9,8 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from fruitloadprediction.config import FruitloadPredictionConfig
-from fruitloadprediction.paths import FruitloadPredictionPaths
+from shared.configs import YieldPredictionConfig
+from shared.paths import YieldPredictionPaths
 
 
 class FruitLoadModel:
@@ -27,23 +27,37 @@ class FruitLoadModel:
     beta: float = 2
 
 
-    _config: FruitloadPredictionConfig
+    _config: YieldPredictionConfig
 
-    def __init__(self, config: FruitloadPredictionConfig, bins: Dict[str, Dict[str, int]]) -> None:
+    def __init__(self, config: YieldPredictionConfig, bins: Dict[str, Dict[str, int]]) -> None:
         self._config = config
         self.bins = bins
-
-        # TODO: use actual supabase data
-        days_since_harvest = [0] * 10 + [2] *10 + [3] * 5 + [6] * 5
-        self.set_data_from_supabase(days_since_harvest, 100, 30)
 
     def set_data_from_supabase(self, days_since_harvest: List[int], plants_per_row: int, total_number_rows: int):
         self.days_since_harvest = days_since_harvest
         self.plants_per_row = plants_per_row
         self.total_number_rows = total_number_rows
 
+        # check if the data fit works with the config to make sure there are no errors later
+        if len(self.days_since_harvest) < max(list(self._config.camera_row_map.values())):
+            raise ValueError("The number of rows gotten from the days_since_harvest is smaller than the largest row index given in the config")
+
+        # check if we have counts for all the cameras in the config
+        for camera in self._config.camera_row_map.keys():
+            if not camera in self.bins.keys():
+                raise ValueError(f"Camera {camera} has no counts in the database within the last day since the given start date")
+
+        # in case there are camera we have data for from the counts but those cameras are not in in config, remove them from the bins
+        cameras_to_remove = list()
+        for camera in self.bins.keys():
+            if not camera in self._config.camera_row_map.keys():
+                cameras_to_remove.append(camera)
+        for camera in cameras_to_remove:
+            del self.bins[camera]
+
+        
     # return fruitload per row
-    def get_current_fruit_load(self) -> Tuple[List[Dict[str, int]], List[str]]:
+    def get_current_fruit_load(self) -> List[Dict[str, int]]:
         estimated_fruit_load = list()
         days_since_harvest_array = np.array([self.days_since_harvest[r] for r in self._config.camera_row_map.values()])
         for row in range(self.total_number_rows):
@@ -66,11 +80,13 @@ class FruitLoadModel:
                     raise ValueError("Camera "+str(cam)+" has not data for visible number of plants, please add it in the config")
                 cur_cam_weight = cur_camera_weights[cam]
                 cur_visible_plants = self._config.visible_plants_per_camera[cam]
+                if cur_visible_plants <= 0:
+                    raise ValueError("Camera "+str(cam)+" has no visible plants, please add it in the config")
                 for stage, count in cur_bins.items():
                     if not stage in cur_estimated_fruit_load.keys():
-                        raise ValueError("Stage "+str(stage)+" is not in growing_stages_order")
+                        continue
                     # weight each cam by the calculated weight, since it sums to 1 we can just use the sum
                     # for the count we need to calc the count per plant (based on number plants the current cam sees) first and multiply that by the plants per row to calc for the whole row
                     cur_estimated_fruit_load[stage] += round(cur_cam_weight*((count/cur_visible_plants)*self.plants_per_row))
             estimated_fruit_load.append(cur_estimated_fruit_load)
-        return estimated_fruit_load, self._config.growing_stages_order
+        return estimated_fruit_load
