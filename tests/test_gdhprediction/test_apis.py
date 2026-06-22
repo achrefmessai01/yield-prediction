@@ -12,8 +12,8 @@ from gdhprediction.apis import (
     get_current_brightsky_forecast,
     get_gdh_prediction,
 )
-from gdhprediction.config import GdhLocalizedPredictionConfig
 from gdhprediction.utils import coerce_tz_datetime
+from shared.configs import GdhLocalizedPredictionConfig
 
 WEATHER_DTYPE = np.dtype([("HR", "<u1"), ("GDH", "<f4")])
 CLIMATE_DTYPE = np.dtype([("GDH_p50", "<f4")])
@@ -64,7 +64,7 @@ def _run(
         climate_cls.from_params.return_value.forecast_gdh.return_value = climate_arr
         weather_cls.from_params.return_value.forecast_gdh.return_value = weather_arr
         prediction = get_gdh_prediction(
-            GdhLocalizedPredictionConfig(LAT, LON),
+            GdhLocalizedPredictionConfig(latitude=LAT, longitude=LON),
             start,
             frequency=frequency,
             duration=duration,
@@ -248,7 +248,7 @@ class TestDstSeamCorrection(TestCase):
             climate_cls.from_params.return_value.forecast_gdh.return_value = climate_arr
             weather_cls.from_params.return_value.forecast_gdh.return_value = weather_arr
             return get_gdh_prediction(
-                GdhLocalizedPredictionConfig(LAT, LON),
+                GdhLocalizedPredictionConfig(latitude=LAT, longitude=LON),
                 start,
                 frequency="hourly",
                 duration=DEFAULT_DURATION,
@@ -469,84 +469,77 @@ class TestCoerceTzMidnight(TestCase):
         self.assertEqual((result.hour, result.minute), (0, 0))
 
 
-# A fixed "now" in Berlin so the past / horizon validations are deterministic.
-FIXED_NOW: Final = datetime(2024, 6, 15, 9, 0, tzinfo=BERLIN)
+# A fixed "now" in Berlin: 14:30 snaps down to the 12:00 boundary (drop = 2 hours).
+FIXED_NOW: Final = datetime(2024, 6, 15, 14, 30, tzinfo=BERLIN)
 
 
 class TestGetCurrentBrightskyForecast(TestCase):
-    """Covers the pure input-validation branches and the cache side effect.
+    """Covers the now-anchored forecast: snapped-hour drop, fixed length, caching.
 
-    BrightSky's network call is mocked; ``WeatherRequestData`` runs for real
-    (it is pure) so the forecast_start propagation is also exercised. The
-    provider's truncation / 404 behaviour is its own contract and is not
-    asserted against the live API here.
+    BrightSky's network call is mocked and ``WeatherRequestData`` runs for real
+    (it is pure). The mocked provider response is a structured array whose first
+    row carries the snapped hour, so the drop arithmetic is exercised end-to-end.
     """
 
     def _call(
         self,
         *,
-        hour: int = 12,
-        future_date: date | None = None,
+        snapped_hour: int = 12,
+        length: int = 240,
         cache: bool = True,
         now: datetime = FIXED_NOW,
     ) -> tuple[np.ndarray, np.ndarray, MagicMock, MagicMock]:
-        fake_array = np.arange(5, dtype=np.float32)
+        raw = _weather(snapped_hour=snapped_hour, length=length)
         with (
             patch("gdhprediction.apis.datetime") as dt,
             patch("gdhprediction.apis.BrightskyDataRequest") as brightsky_cls,
             patch("gdhprediction.apis.CacheManager") as cache_cls,
         ):
             dt.now.return_value = now
-            dt.combine.side_effect = datetime.combine
-            brightsky_cls.return_value.request_brightsky_data.return_value = fake_array
-            result = get_current_brightsky_forecast(
-                LAT,
-                LON,
-                hour,  # type: ignore[arg-type]
-                future_date,
-                cache=cache,
-            )
-        return result, fake_array, brightsky_cls, cache_cls
+            brightsky_cls.return_value.request_brightsky_data.return_value = raw
+            result = get_current_brightsky_forecast(LAT, LON, cache=cache)
+        return result, raw, brightsky_cls, cache_cls
 
-    def test_invalid_hour_raises(self) -> None:
+    def test_drops_hours_between_now_and_snapped_boundary(self) -> None:
+        # now=14:30 -> snapped 12:00 -> drop the leading 2 hours, cap to 234.
+        result, raw, _brightsky_cls, _cache_cls = self._call()
+        self.assertEqual(len(result), 234)
+        # GDH is arange, so the first kept row is raw[2] (value 2.0).
+        self.assertEqual(result["GDH"][0], raw["GDH"][2])
+        self.assertEqual(result["GDH"][0], 2.0)
+
+    def test_boundary_now_drops_nothing(self) -> None:
+        # now exactly on a 6h boundary -> drop 0, still capped to 234.
+        on_boundary = datetime(2024, 6, 15, 12, 0, tzinfo=BERLIN)
+        result, raw, _brightsky_cls, _cache_cls = self._call(now=on_boundary)
+        self.assertEqual(len(result), 234)
+        self.assertEqual(result["GDH"][0], raw["GDH"][0])
+
+    def test_empty_response_raises(self) -> None:
         with self.assertRaises(ValueError):
-            self._call(hour=3)
+            self._call(length=0)
 
-    def test_future_date_in_the_past_raises(self) -> None:
-        with self.assertRaises(ValueError):
-            self._call(hour=12, future_date=date(2024, 6, 14))
+    def test_short_response_warns_and_returns_best_effort(self) -> None:
+        # fewer than the full horizon -> warning, still returns the trimmed slice.
+        with self.assertLogs("gdhprediction.apis", level="WARNING"):
+            result, _raw, _brightsky_cls, _cache_cls = self._call(length=100)
+        self.assertEqual(len(result), 98)  # 100 - drop(2), below the 234 cap
 
-    def test_forecast_start_in_the_past_raises(self) -> None:
-        # 00:00 today is > 1h before the fixed now (09:00).
-        with self.assertRaises(ValueError):
-            self._call(hour=0, future_date=date(2024, 6, 15))
-
-    def test_forecast_start_beyond_horizon_raises(self) -> None:
-        # 10 days out exceeds the 9-day horizon guard.
-        with self.assertRaises(ValueError):
-            self._call(hour=12, future_date=date(2024, 6, 25))
-
-    def test_none_future_date_defaults_to_today_and_returns_array(self) -> None:
-        result, fake_array, brightsky_cls, _cache_cls = self._call(
-            hour=12,
-            future_date=None,
-        )
-        np.testing.assert_array_equal(result, fake_array)
-        # forecast_start was built from today's date at the requested hour.
-        wrd = brightsky_cls.call_args.args[0]
-        self.assertTrue(wrd.date.startswith("2024-06-15T12:00"))
-
-    def test_cache_true_writes_raw(self) -> None:
-        _result, _fake, _brightsky_cls, cache_cls = self._call(hour=12, cache=True)
+    def test_cache_true_writes_untrimmed_raw(self) -> None:
+        result, raw, _brightsky_cls, cache_cls = self._call(cache=True)
         cache_cls.assert_called_once()
         # written to the volatile (non-persistent) cache as the raw format.
         self.assertFalse(cache_cls.call_args.kwargs["persistent"])
-        cache_cls.return_value.write_to_cache.assert_called_once()
-        self.assertEqual(
-            cache_cls.return_value.write_to_cache.call_args.kwargs["cache_fmt"],
-            "raw",
-        )
+        write = cache_cls.return_value.write_to_cache
+        write.assert_called_once()
+        self.assertEqual(write.call_args.kwargs["cache_fmt"], "raw")
+        # the cached array is the full, untrimmed provider response (not the
+        # now-aligned slice) so the GDH path's raw cache stays uncontaminated.
+        cached = write.call_args.args[0]
+        self.assertEqual(len(cached), len(raw))
+        self.assertEqual(len(cached), 240)
+        self.assertEqual(len(result), 234)
 
     def test_cache_false_skips_write(self) -> None:
-        _result, _fake, _brightsky_cls, cache_cls = self._call(hour=12, cache=False)
+        _result, _raw, _brightsky_cls, cache_cls = self._call(cache=False)
         cache_cls.assert_not_called()
