@@ -7,7 +7,7 @@ from typing import Any, ClassVar, Self, TypedDict, cast
 import numpy as np
 from requests import RequestException
 
-from shared.configs import GdhPredictionConfig
+from gdhprediction.config import GdhPredictionConfig
 from gdhprediction.request import CacheManager, DataRequest, GdhData, RequestApiError
 from gdhprediction.utils import (
     BRIGHTSKY_API,

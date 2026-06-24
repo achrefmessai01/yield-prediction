@@ -1,7 +1,8 @@
+import math
 from dataclasses import dataclass
 from unittest import TestCase
 
-from gdhprediction.utils import FieldsHashMxn
+from gdhprediction.utils import FieldsHashMxn, round_sig
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,3 +95,24 @@ class TestFieldsHashMxn(TestCase):
     def test_raises_on_non_dataclass(self) -> None:
         with self.assertRaises(TypeError):
             _PlainNotDataclass().compute_hash()
+
+
+class TestRoundSig(TestCase):
+    """``round_sig`` keeps N significant figures, scale-invariantly."""
+
+    def test_rounds_to_significant_figures(self) -> None:
+        # 5 sig figs keeps the leading 5 digits regardless of magnitude.
+        self.assertEqual(round_sig(6123.4567, 5), 6123.5)
+        self.assertEqual(round_sig(0.0080000001, 5), 0.008)
+
+    def test_collapses_sub_precision_noise(self) -> None:
+        # Values agreeing to 5 sig figs round to the same float.
+        self.assertEqual(round_sig(0.008, 5), round_sig(0.00800000001, 5))
+
+    def test_distinguishes_within_precision(self) -> None:
+        self.assertNotEqual(round_sig(0.0080000, 5), round_sig(0.0080001, 5))
+
+    def test_zero_and_non_finite_pass_through(self) -> None:
+        self.assertEqual(round_sig(0.0, 5), 0.0)
+        self.assertTrue(math.isnan(round_sig(math.nan, 5)))
+        self.assertEqual(round_sig(math.inf, 5), math.inf)

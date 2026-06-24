@@ -18,10 +18,10 @@ Each fruit maturation stage requires a certain amount of growth-degree-hours (GD
 
 The program must meet the following:
 
-- [ ] take counts of seven strawberry maturation stages as input
+- [x] take counts of seven strawberry maturation stages as input
 - [x] read historical temperature data from NASA Power API
 - [x] use local meteorological forecast (e.g. BrightSky)
-- [ ] predict the maturation schedule for the next 30 days
+- [x] predict the maturation schedule for the next 30 days
 - [ ] extrapolate the yield for the whole greenhouse
 - [x] for a given GPS, download the historical temperature data only once
 
@@ -33,7 +33,7 @@ Configuration must allow:
 
 Stages modelling:
 
-- [ ] each stage obtained from the classifier should be mapped onto a range of GDH
+- [x] each stage obtained from the classifier should be mapped onto a range of GDH
 - [ ] use normal (or other?) distribution for the mapping
 - [ ] the GDH range should be configurable for each stage
 

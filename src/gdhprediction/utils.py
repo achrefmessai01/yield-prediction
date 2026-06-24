@@ -44,7 +44,6 @@ BRIGHTSKY_FIELDS: Final[frozenset[BrightSkyFields]] = frozenset(
 PARAMETERS: Final[frozenset[NasaParameters]] = frozenset(get_args(NasaParameters))
 DateTimeUnits = Literal["YEAR", "MO", "DY", "HR"]
 DATETIME_UNITS: Final[frozenset[DateTimeUnits]] = frozenset(get_args(DateTimeUnits))
-Transforms = Literal["shift", "radiation_shift", "identity"]
 CacheFormat = Literal["raw", "processed"]
 MISSING_DATA: Final[Literal[-999]] = -999
 FIRST_YEAR: Final = 2001  # must by later than 2001
@@ -230,6 +229,25 @@ def rh_from(temperature: float, dew_pt: float) -> float:
     es = 6.112 * math.exp((17.67 * temperature) / (temperature + 243.5))
     ea = 6.112 * math.exp((17.67 * dew_pt) / (dew_pt + 243.5))
     return 100.0 * ea / es
+
+
+def round_sig(value: float, sig_figs: int) -> float:
+    """Round ``value`` to ``sig_figs`` significant figures.
+
+    Scale-invariant meaningful for parameters at very different magnitudes.
+    """
+    if value == 0.0 or not math.isfinite(value):
+        return value
+    return round(value, sig_figs - 1 - math.floor(math.log10(abs(value))))
+
+
+def ordered(rng: tuple[float, float]) -> tuple[float, float]:
+    """Return ``(lo, hi)`` unchanged; raise if it is not strictly increasing."""
+    lo, hi = rng
+    if lo >= hi:
+        msg = f"range min ({lo}) must be < max ({hi})"
+        raise ValueError(msg)
+    return rng
 
 
 def get_gps_tzinfo(latitude: float, longitude: float) -> ZoneInfo:

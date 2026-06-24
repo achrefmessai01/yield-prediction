@@ -20,8 +20,7 @@ from requests import RequestException, Response, Session
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
-from shared.configs import GdhPredictionConfig
-from shared.paths import GdhPredictionPaths, APP_PATHS
+from gdhprediction.config import APP_PATHS, GdhPredictionConfig, GdhPredictionPaths
 from gdhprediction.utils import (
     CacheFormat,
     DataclassInstance,

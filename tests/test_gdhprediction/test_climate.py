@@ -6,10 +6,9 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from gdhprediction.climate import ClimateGdhData, RequestData
+from gdhprediction.config import APP_PATHS, GdhPredictionConfig, GdhPredictionPaths
 from gdhprediction.request import CacheManager
 from gdhprediction.utils import HOURS_PER_YEAR, PERCENTILES, HourlyAnnualizedGdhDType
-from shared.configs import GdhPredictionConfig
-from shared.paths import APP_PATHS, GdhPredictionPaths
 
 # ruff: noqa: SLF001
 

@@ -168,3 +168,8 @@ cython_debug/
 # Calude files
 CLAUDE.md
 
+# PDF-converted MD docs
+/docs/*.pdf
+
+# local outputs
+/out/

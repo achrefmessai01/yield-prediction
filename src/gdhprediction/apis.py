@@ -8,6 +8,7 @@ import numpy.typing as npt
 import typer
 
 from gdhprediction.climate import ClimateGdhData
+from gdhprediction.config import APP_PATHS, GdhLocalizedPredictionConfig
 from gdhprediction.request import CacheManager, CacheScope
 from gdhprediction.utils import (
     CLIMATE_YEARS,
@@ -23,8 +24,6 @@ from gdhprediction.weather import (
     WeatherGdhData,
     WeatherRequestData,
 )
-from shared.configs import GdhLocalizedPredictionConfig
-from shared.paths import APP_PATHS
 
 LOGGER = logging.getLogger(__name__)
 LOGGER.addHandler(logging.NullHandler())

@@ -21,7 +21,6 @@ from gdhprediction.transforms import (
     Shift,
     TemperatureTransform,
 )
-from gdhprediction.utils import Transforms
 from shared.utils import FieldsHashMxn
 
 
@@ -78,7 +77,7 @@ class _GdhPredictionData(TypedDict):
     gdh_base: float
     temperature_shift: float
     solar_factor: float
-    transform_key: Transforms
+    transform_key: str
 
 
 @dataclass(frozen=False, slots=True, kw_only=True)
@@ -88,7 +87,7 @@ class GdhPredictionConfig(Config):
     gdh_base: float = 4.5
     temperature_shift: float = 2.0
     solar_factor: float = 0.01
-    transform_key: Transforms = "shift"
+    transform_key: str = "shift"
 
     @property
     def temperature_transform(self) -> TemperatureTransform:
