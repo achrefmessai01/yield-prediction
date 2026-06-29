@@ -1,5 +1,7 @@
+"""Weather leg: the BrightSky/DWD short-range forecast reduced to cumulative GDH."""
+
 import logging
-from collections.abc import Set
+from collections.abc import Set as AbstractSet
 from dataclasses import InitVar, dataclass, field, replace
 from datetime import datetime, timedelta
 from typing import Any, ClassVar, Self, TypedDict, cast
@@ -17,7 +19,7 @@ from gdhprediction.utils import (
     BrightSkyFields,
     FieldsHashMxn,
     HourlyForecastGhdDType,
-    NamedDataArray,
+    StructuredDataArray,
     coerce_tz_datetime,
     get_gps_tzinfo,
     rh_from,
@@ -30,6 +32,7 @@ LOGGER.addHandler(logging.NullHandler())
 
 
 class BrightSkyRecord(TypedDict):
+    """The BrightSky fields consumed from each hourly observation."""
 
     timestamp: str
     temperature: float
@@ -39,6 +42,7 @@ class BrightSkyRecord(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class WeatherRequestData(FieldsHashMxn):
+    """Frozen BrightSky request params; snaps the start hour to a 6-hour boundary."""
 
     MAX_DURATION: ClassVar[int] = 10  # days
     SNAPPED: ClassVar[int] = 6  # hours
@@ -73,12 +77,13 @@ class WeatherRequestData(FieldsHashMxn):
 
 @dataclass(frozen=True, slots=True)
 class BrightskyDataRequest(DataRequest):
+    """DataRequest for the BrightSky/DWD weather endpoint."""
 
     # API configuration
     _API_NAME = "Brightsky"
     _API_URL = BRIGHTSKY_API
     _DEFAULT_API_VERSION = "v2"
-    _REQUIRED: ClassVar[Set[BrightSkyFields]] = BRIGHTSKY_FIELDS
+    _REQUIRED: ClassVar[AbstractSet[BrightSkyFields]] = BRIGHTSKY_FIELDS
     _TOP_LEVEL: ClassVar[str] = "weather"
 
     request_data: WeatherRequestData
@@ -97,9 +102,7 @@ class BrightskyDataRequest(DataRequest):
             len(required),
         )
 
-        processed = self._process_brightsky_data(required)
-
-        return processed
+        return self._process_brightsky_data(required)
 
     def _filter_records(self, records: list[dict[str, Any]]) -> list[BrightSkyRecord]:
         filtered: list[BrightSkyRecord] = []
@@ -167,6 +170,7 @@ class BrightskyDataRequest(DataRequest):
 
 
 class WeatherGdhData(GdhData[WeatherRequestData]):
+    """Weather leg: BrightSky forecast reduced to cumulative GDH."""
 
     __slots__ = ()
 
@@ -207,7 +211,7 @@ class WeatherGdhData(GdhData[WeatherRequestData]):
     def forecast_gdh(self, /, **kwargs: Any) -> BrightSkyDataArray:
         return self.data_array if self.data_array is not None else self.get_gdh_data()
 
-    def _refresh_caches(self) -> NamedDataArray:
+    def _refresh_caches(self) -> StructuredDataArray:
         try:
             data_array = super()._refresh_caches()
         except (RequestException, RequestApiError):

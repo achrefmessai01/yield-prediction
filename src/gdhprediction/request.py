@@ -1,3 +1,5 @@
+"""HTTP request base, the two-tier .npy cache manager, and the GdhData fetch ABC."""
+
 import hashlib
 import logging
 from abc import ABC, abstractmethod
@@ -25,7 +27,7 @@ from gdhprediction.utils import (
     CacheFormat,
     DataclassInstance,
     FieldsHashCoor,
-    NamedDataArray,
+    StructuredDataArray,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -38,6 +40,7 @@ class RequestApiError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class DataRequest(ABC):
+    """Abstract HTTP data request backed by a retrying session."""
 
     # API configuration
     _API_URL: ClassVar[str]
@@ -152,6 +155,7 @@ CacheScope = Literal["data", "cache", "all"]
 
 @dataclass(frozen=True, slots=True)
 class CacheManager:
+    """Two-tier (raw/processed) .npy cache with sha256 integrity checks."""
 
     raw_data_hash: str
     config_hash: InitVar[str]
@@ -163,7 +167,10 @@ class CacheManager:
         # Collision-free combination
         data_request_hash = self.raw_data_hash
         concatenated = f"{data_request_hash}_{config_hash}"
-        combined = hashlib.md5(concatenated.encode(encoding="utf-8")).hexdigest()[:8]
+        combined = hashlib.md5(
+            concatenated.encode(encoding="utf-8"),
+            usedforsecurity=False,
+        ).hexdigest()[:8]
         object.__setattr__(self, "processed_hash", combined)
 
     def _hash(self, data_format: CacheFormat) -> str:
@@ -212,7 +219,7 @@ class CacheManager:
 
     def write_to_cache(
         self,
-        data_array: NamedDataArray,
+        data_array: StructuredDataArray,
         cache_fmt: CacheFormat,
     ) -> None:
         """Write current data array to cache with checksum."""
@@ -232,7 +239,7 @@ class CacheManager:
             checksum_path,
         )
 
-    def load_from_cache(self, data_fmt: CacheFormat) -> NamedDataArray | None:
+    def load_from_cache(self, data_fmt: CacheFormat) -> StructuredDataArray | None:
         """Load cached data into memory if it exists and is uncorrupted."""
         hashkey = self._hash(data_fmt)
         if self._check_cache(hashkey):
@@ -269,6 +276,7 @@ class CacheManager:
 
 
 class GdhData[FHD: FieldsHashCoor](ABC):
+    """Abstract fetch/cache/process pipeline producing GDH arrays for a request type."""
 
     __slots__ = (
         "_cache_manager",
@@ -282,8 +290,8 @@ class GdhData[FHD: FieldsHashCoor](ABC):
     PARAMETERS: ClassVar[tuple[str, ...]]  # allows covariance in subclasses
 
     # instance attributes
-    data_array: NamedDataArray | None
-    transform: Callable[[NamedDataArray], npt.NDArray[np.float32]]
+    data_array: StructuredDataArray | None
+    transform: Callable[[StructuredDataArray], npt.NDArray[np.float32]]
     _config: GdhPredictionConfig
     _cache_manager: CacheManager
     _request_data: FHD
@@ -321,7 +329,7 @@ class GdhData[FHD: FieldsHashCoor](ABC):
         **kwargs: Any,
     ) -> Self: ...
 
-    def get_gdh_data(self) -> NamedDataArray:
+    def get_gdh_data(self) -> StructuredDataArray:
         """Get climate data, using cache if available and valid."""
         if self.data_array is not None:
             LOGGER.info("Using in-memory data array.")
@@ -345,12 +353,12 @@ class GdhData[FHD: FieldsHashCoor](ABC):
         return self._refresh_caches()
 
     @abstractmethod
-    def _process(self, raw_data: NamedDataArray) -> NamedDataArray: ...
+    def _process(self, raw_data: StructuredDataArray) -> StructuredDataArray: ...
 
     @abstractmethod
-    def _request_raw_data(self) -> NamedDataArray: ...
+    def _request_raw_data(self) -> StructuredDataArray: ...
 
-    def _refresh_caches(self) -> NamedDataArray:
+    def _refresh_caches(self) -> StructuredDataArray:
         """Recreate raw and processed caches by requesting and processing new data."""
         raw_data = self._request_raw_data()
         self._cache_manager.write_to_cache(raw_data, "raw")
@@ -360,7 +368,7 @@ class GdhData[FHD: FieldsHashCoor](ABC):
         return self.data_array
 
     @abstractmethod
-    def forecast_gdh(self, /, **kwargs: Any) -> NamedDataArray:
+    def forecast_gdh(self, /, **kwargs: Any) -> StructuredDataArray:
         """Compute GDH forecast."""
 
     @property

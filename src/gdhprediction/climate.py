@@ -1,3 +1,5 @@
+"""Climate leg: NASA POWER hourly history reduced to per-hour GDH percentiles."""
+
 import logging
 from calendar import isleap
 from collections.abc import Iterable
@@ -92,7 +94,7 @@ class RequestData(FieldsHashMxn):
         start_year: int | None,
         end_year: int | None,
     ) -> tuple[int, int]:
-        last_year: int = date.today().year - 1
+        last_year: int = date.today().year - 1  # noqa: DTZ011 (.year only)
         start: int = start_year or FIRST_YEAR
         end: int = end_year or last_year
         if start > end:
@@ -117,6 +119,7 @@ class RequestData(FieldsHashMxn):
 
 
 class ClimateGdhData(GdhData[RequestData]):
+    """Climate-leg GdhData: NASA history to per-hour GDH percentiles across years."""
 
     __slots__ = ()
 
@@ -169,11 +172,9 @@ class ClimateGdhData(GdhData[RequestData]):
         # make sure time zone is properly handled
         _today: date = coerce_tz_datetime(start_date, _tzinfo).date()
         # ensure climate data available
-        data_array: NasaDataArray
-        if self.data_array is None:
-            data_array = self.get_gdh_data()
-        else:
-            data_array = self.data_array
+        data_array: NasaDataArray = (
+            self.get_gdh_data() if self.data_array is None else self.data_array
+        )
         # find data between today and 28 days from now
         today_hour = (_today.timetuple().tm_yday - 1) * 24
         if isleap(_today.year) and _today.month > FEB:
@@ -214,6 +215,7 @@ class ClimateGdhData(GdhData[RequestData]):
 
 @dataclass(frozen=True, slots=True)
 class ClimateDataRequest(DataRequest):
+    """DataRequest for NASA POWER hourly point data (CSV)."""
 
     # class variables
     _API_URL = NASA_HOURLY_API

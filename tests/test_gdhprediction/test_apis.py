@@ -13,7 +13,8 @@ from gdhprediction.apis import (
     get_gdh_prediction,
 )
 from gdhprediction.config import GdhLocalizedPredictionConfig
-from gdhprediction.utils import coerce_tz_datetime
+from gdhprediction.utils import Float32, StructuredDataArray, coerce_tz_datetime
+from tests._base import ArrayTestCase
 
 WEATHER_DTYPE = np.dtype([("HR", "<u1"), ("GDH", "<f4")])
 CLIMATE_DTYPE = np.dtype([("GDH_p50", "<f4")])
@@ -24,14 +25,14 @@ LON: Final = 13.41
 DEFAULT_DURATION: Final = 28
 
 
-def _weather(snapped_hour: int, length: int = 240) -> np.ndarray:
+def _weather(snapped_hour: int, length: int = 240) -> StructuredDataArray:
     arr = np.empty(length, dtype=WEATHER_DTYPE)
     arr["HR"] = snapped_hour
     arr["GDH"] = np.arange(length, dtype=np.float32)
     return arr
 
 
-def _climate(length: int, step: float = 0.5) -> np.ndarray:
+def _climate(length: int, step: float = 0.5) -> StructuredDataArray:
     arr = np.empty(length, dtype=CLIMATE_DTYPE)
     arr["GDH_p50"] = np.arange(length, dtype=np.float32) * step
     return arr
@@ -43,7 +44,7 @@ def _run(
     frequency: Frequency,
     duration: int = DEFAULT_DURATION,
     weather_length: int = 240,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+) -> tuple[Float32, StructuredDataArray, StructuredDataArray, int]:
     """Run get_gdh_prediction with mocked weather/climate.
 
     Returns the prediction array, the mocked weather array, the mocked
@@ -77,7 +78,7 @@ def _run(
     return prediction, weather_arr, climate_arr, forecast_arg
 
 
-class TestStitchContinuity(TestCase):
+class TestStitchContinuity(ArrayTestCase):
     """Verify the seam between weather and climate is continuous and aligned
     to the requested hour. Weather is cropped from the snapped hour to the
     requested hour, re-anchored so its first GDH is zero, and the prediction
@@ -86,9 +87,9 @@ class TestStitchContinuity(TestCase):
 
     def assertHourlyInvariants(
         self,
-        prediction: np.ndarray,
-        weather: np.ndarray,
-        climate: np.ndarray,
+        prediction: Float32,
+        weather: StructuredDataArray,
+        climate: StructuredDataArray,
         snapped_hour: int,
         datetime_hour: int,
         duration: int = DEFAULT_DURATION,
@@ -105,9 +106,10 @@ class TestStitchContinuity(TestCase):
         # Weather portion: cropped from `weather_start`, anchored so the
         # first value is zero.
         expected_weather = weather["GDH"][weather_start:] - anchor
-        np.testing.assert_array_almost_equal(
+        self.assertAllClose(
             prediction[:n_w_cropped],
             expected_weather,
+            atol=1.5e-6,
         )
 
         # Seam is continuous: climate_part[0] anchors on the anchored
@@ -229,7 +231,7 @@ BERLIN: Final = ZoneInfo("Europe/Berlin")
 TOKYO: Final = ZoneInfo("Asia/Tokyo")
 
 
-class TestDstSeamCorrection(TestCase):
+class TestDstSeamCorrection(ArrayTestCase):
     """BrightSky stamps every record with the offset present in the request's
     `date` field (no ``tz=`` param is sent). NASA POWER LST is local
     *standard* time year-round. So when ``start_datetime`` is in DST, the
@@ -239,7 +241,7 @@ class TestDstSeamCorrection(TestCase):
     """
 
     @staticmethod
-    def _run_with_climate(start: datetime, climate_arr: np.ndarray) -> np.ndarray:
+    def _run_with_climate(start: datetime, climate_arr: StructuredDataArray) -> Float32:
         weather_arr = _weather(snapped_hour=12)
         with (
             patch("gdhprediction.apis.ClimateGdhData") as climate_cls,
@@ -277,9 +279,10 @@ class TestDstSeamCorrection(TestCase):
         # Sanity: weather portion is identical in both seasons (mock returns
         # the same array; anchor and crop are season-independent).
         n_weather = 240
-        np.testing.assert_array_almost_equal(
+        self.assertAllClose(
             summer_pred[:n_weather],
             winter_pred[:n_weather],
+            atol=1.5e-6,
         )
 
         # Seam value is always the weather anchor regardless of DST, because
@@ -314,7 +317,7 @@ class TestDstSeamCorrection(TestCase):
         )
 
 
-class TestClimatologyOnlyFallback(TestCase):
+class TestClimatologyOnlyFallback(ArrayTestCase):
     """When BrightSky returns no usable forecast hours -- either an empty
     response (window entirely past the horizon) or a short response that the
     snap-crop empties -- the prediction must fall back to climatology only,
@@ -328,8 +331,8 @@ class TestClimatologyOnlyFallback(TestCase):
 
     def _assert_climatology_only(
         self,
-        prediction: np.ndarray,
-        climate: np.ndarray,
+        prediction: Float32,
+        climate: StructuredDataArray,
         datetime_hour: int,
         duration_hours: int,
     ) -> None:
@@ -342,7 +345,7 @@ class TestClimatologyOnlyFallback(TestCase):
             climate["GDH_p50"][datetime_hour : datetime_hour + duration_hours]
             - climate["GDH_p50"][datetime_hour]
         )
-        np.testing.assert_array_almost_equal(prediction, expected)
+        self.assertAllClose(prediction, expected, atol=1.5e-6)
 
     def test_empty_weather_hourly_falls_back_to_climatology(self) -> None:
         with self.assertLogs("gdhprediction.apis", level="WARNING"):
@@ -488,7 +491,7 @@ class TestGetCurrentBrightskyForecast(TestCase):
         length: int = 240,
         cache: bool = True,
         now: datetime = FIXED_NOW,
-    ) -> tuple[np.ndarray, np.ndarray, MagicMock, MagicMock]:
+    ) -> tuple[StructuredDataArray, StructuredDataArray, MagicMock, MagicMock]:
         raw = _weather(snapped_hour=snapped_hour, length=length)
         with (
             patch("gdhprediction.apis.datetime") as dt,

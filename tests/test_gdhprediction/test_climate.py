@@ -8,7 +8,13 @@ import numpy as np
 from gdhprediction.climate import ClimateGdhData, RequestData
 from gdhprediction.config import APP_PATHS, GdhPredictionConfig, GdhPredictionPaths
 from gdhprediction.request import CacheManager
-from gdhprediction.utils import HOURS_PER_YEAR, PERCENTILES, HourlyAnnualizedGdhDType
+from gdhprediction.utils import (
+    HOURS_PER_YEAR,
+    PERCENTILES,
+    HourlyAnnualizedGdhDType,
+    NasaDataArray,
+)
+from tests._base import ArrayTestCase
 
 # ruff: noqa: SLF001
 
@@ -152,7 +158,7 @@ class TestCaching(TestCase):
         self.assertFalse(self.CACHE_MANAGER._check_cache(self.RAW_HASHKEY))
 
 
-def _synthetic_climate_array() -> np.ndarray:
+def _synthetic_climate_array() -> NasaDataArray:
     """8760-row climate array with CUMGDH_pXX[i] = i**2 across all percentiles.
 
     The square gives each starting index a distinctive forecast trajectory, so
@@ -175,7 +181,7 @@ def _make_cgd() -> ClimateGdhData:
     return cgd
 
 
-class TestClimateForecastGdhWindow(TestCase):
+class TestClimateForecastGdhWindow(ArrayTestCase):
     """Test :meth:`ClimateGdhData.forecast_gdh`.
 
     forecast_gdh slices into the 8760-row, non-leap climate array using
@@ -226,7 +232,7 @@ class TestClimateForecastGdhWindow(TestCase):
         # Element differences pin both ends of the concatenation. In a
         # consecutive difference the anchor cancels, so each step should
         # match the same step in the underlying source array.
-        data_array = cast("np.ndarray", cgd.data_array)
+        data_array = cast("NasaDataArray", cgd.data_array)
         src = data_array["CUMGDH_p50"]
         p50 = result["GDH_p50"]
         # Pre-wrap step (286→287) mirrors source step 8758→8759, confirming
@@ -263,7 +269,7 @@ class TestClimateForecastGdhWindow(TestCase):
     def test_does_not_mutate_source_array(self) -> None:
         # forecast_gdh re-anchors via in-place subtraction on a .copy()
         cgd = _make_cgd()
-        data_array = cast("np.ndarray", cgd.data_array)
+        data_array = cast("NasaDataArray", cgd.data_array)
         before = data_array["CUMGDH_p50"].copy()
         cgd.forecast_gdh(start_date=date(2023, 6, 15), forecast=14)
-        np.testing.assert_array_equal(data_array["CUMGDH_p50"], before)
+        self.assertArrayEqual(data_array["CUMGDH_p50"], before)

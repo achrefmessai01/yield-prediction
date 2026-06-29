@@ -3,6 +3,7 @@ name = "yieldprediction"
 version = "0.1.0"
 description = ""
 authors = [
+    { name = "Tom Klein", email = "tom.klein@v-greens.com" },
     { name = "Daniel Smit", email = "daniel.mff@gmail.com" }
 ]
 readme = "README.md"
@@ -41,7 +42,34 @@ notebook = [
 
 [tool.ruff.lint]
 select = ["ALL"]  # Enable all 800+ rules
-ignore = ["PT009"]
+ignore = [
+    "PT009",   # we assert via unittest.TestCase, not bare pytest asserts
+    "PT027",   #   ... likewise self.assertRaises over pytest.raises
+    "ANN401",  # **kwargs: Any is the documented polymorphic forecast_gdh API
+    "ANN003",  #   ... and its untyped **kwargs pair with that design
+    "TRY003",  # long literal messages in raises are acceptable here
+    "ARG002",  # forecast_gdh's **kwargs is a documented catch-all (absorbed by design)
+    "ARG003",  #   ... as is from_params' **kwargs across the GdhData subclasses
+    "D102",    # don't force docstrings on every public method
+    "D103",    #   ... or every public function
+    "D105",    #   ... or dunder methods
+    "D107",    #   ... or __init__ (documented at the class level instead)
+    "D203",    # incompatible with D211 (no blank line before class); keep D211
+    "D213",    # incompatible with D212 (summary on first line); keep D212
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Test code: names + assertions are self-documenting and the harness differs
+# from production conventions.
+"tests/**" = [
+    "D",        # test/helper names document themselves; no enforced docstrings
+    "DTZ001",   # naive datetimes are deliberate fixtures (code stamps the tz)
+    "S101",     # asserts are how tests assert
+    "PLC0415",  # lazy imports (e.g. matplotlib in @skip visual-aid helpers)
+    "ANN201",   # helper return types are obvious
+    "N802",     # assert* helpers mirror unittest's camelCase naming
+    "PLR0913",  # parametrised test helpers legitimately take many knobs
+]
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

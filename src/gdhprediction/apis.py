@@ -1,3 +1,5 @@
+"""Public GDH-prediction entry points: stitch BrightSky forecast onto climatology."""
+
 import logging
 from datetime import date, datetime
 from typing import Annotated, Any, Final, Literal
