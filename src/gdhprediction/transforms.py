@@ -1,3 +1,5 @@
+"""Temperature transforms mapping outdoor weather to an indoor temperature for GDH."""
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import ClassVar, Final, Self
@@ -84,6 +86,7 @@ class TemperatureTransform(ABC):
 
 @dataclass(frozen=True, slots=True)
 class Identity(TemperatureTransform):
+    """Indoor temperature equals the raw outdoor T2M."""
 
     def __call__(self, data: NasaDataArray) -> npt.NDArray[np.float32]:
         self.validate(data)
@@ -95,6 +98,7 @@ IDENTITY: Final = Identity()
 
 @dataclass(frozen=True, slots=True)
 class Shift(TemperatureTransform):
+    """Indoor temperature is the outdoor T2M plus a constant offset."""
 
     degree_shift: float
 
@@ -105,6 +109,7 @@ class Shift(TemperatureTransform):
 
 @dataclass(frozen=True, slots=True)
 class RadiationShift(Shift):
+    """Add a linear solar-gain term to a shifted outdoor temperature."""
 
     required_params: ClassVar[set[NasaParameters]] = {"T2M", "ALLSKY_SFC_SW_DWN"}
     solar_factor: float
@@ -116,7 +121,7 @@ class RadiationShift(Shift):
         return self.degree_shift + self.solar_factor * solar + t2m
 
     @classmethod
-    def from_constants(
+    def from_constants(  # noqa: PLR0913
         cls,
         footprint_area: float,
         coverage_area: float,
@@ -136,6 +141,7 @@ class RadiationShift(Shift):
 
 @dataclass(frozen=True, slots=True)
 class AdaptiveShift(TemperatureTransform):
+    """Energy-balance indoor temperature with passive, heating, and venting regimes."""
 
     base_heat_loss: float
     solar_factor: float
@@ -167,7 +173,7 @@ class AdaptiveShift(TemperatureTransform):
         return indoor.astype(np.float32)
 
     @classmethod
-    def from_constants(
+    def from_constants(  # noqa: PLR0913
         cls,
         footprint_area: float,
         coverage_area: float,

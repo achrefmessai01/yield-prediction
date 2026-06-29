@@ -1,3 +1,5 @@
+"""Shared dtypes, constants, GPS/timezone, FAO-56 radiation, and field hashing."""
+
 import hashlib
 import math
 from abc import ABC
@@ -121,12 +123,23 @@ def hourly_cache_dtype(num_years: int) -> np.dtype[Any]:
     )
 
 
-type NamedDataArray = npt.NDArray[np.void]
+type StructuredDataArray = npt.NDArray[np.void]
+"""Structured (named-field) array at the cache + abstract pipeline layer;
+supertype of NasaDataArray and BrightSkyDataArray."""
 type NasaDataArray = npt.NDArray[np.void]
+"""Structured array carrying NASA POWER's hourly fields (T2M, ALLSKY_SFC_SW_DWN)."""
 type BrightSkyDataArray = npt.NDArray[np.void]
+"""Structured array carrying BrightSky/DWD's hourly forecast fields."""
+type Float64 = npt.NDArray[np.float64]
+"""Plain float64 array (raw temperature/irradiance series)."""
+type Float32 = npt.NDArray[np.float32]
+"""Plain float32 array (processed GDH output series)."""
 
 
-class FieldsHashMxn(ABC):
+# ABC used as a mixin base: subclasses supply dataclass fields, not abstract methods.
+class FieldsHashMxn(ABC):  # noqa: B024
+    """Mixin giving a frozen dataclass a stable 8-char hash over its fields."""
+
     __slots__ = ()
 
     hash_version: ClassVar[int] = 1  # increment this if the hash_fields logic changes
@@ -142,11 +155,13 @@ class FieldsHashMxn(ABC):
                 else:
                     yield str(val)
         else:
-            raise TypeError(f"Default {type(self)} can only be mixed with dataclasses.")
+            msg = f"Default {type(self)} can only be mixed with dataclasses."
+            raise TypeError(msg)
 
     def compute_hash(self) -> str:
         key = "_".join(self.hash_fields) + f"_v{self.hash_version}"
-        return hashlib.md5(key.encode(encoding="utf-8")).hexdigest()[:8]
+        digest = hashlib.md5(key.encode(encoding="utf-8"), usedforsecurity=False)
+        return digest.hexdigest()[:8]
 
 
 def is_parameter(value: str) -> TypeIs[NasaParameters]:
@@ -163,6 +178,8 @@ def remove_leap(data_array: NasaDataArray) -> NasaDataArray:
 
 
 class DataclassInstance(Protocol):
+    """Structural type matching any dataclass instance."""
+
     __dataclass_fields__: ClassVar[dict[str, Any]]
 
 
@@ -185,7 +202,7 @@ def to_month_day_hour(timestamp: datetime) -> tuple[int, int, int]:
     return timestamp.month, timestamp.day, timestamp.hour
 
 
-def sunshine_to_radiation(
+def sunshine_to_radiation(  # noqa: PLR0913
     sunshine_min: float,  # DWD sunshine duration (min/h)
     lat_deg: float,
     day_of_year: int,
@@ -261,9 +278,11 @@ def get_gps_tzinfo(latitude: float, longitude: float) -> ZoneInfo:
 
 def validate_gps(lat: float, lon: float) -> None:
     if not -LAT_MAX <= lat <= LAT_MAX:
-        raise ValueError(f"Latitude out of range: {lat}")
+        msg = f"Latitude out of range: {lat}"
+        raise ValueError(msg)
     if not -LON_MAX <= lon <= LON_MAX:
-        raise ValueError(f"Longitude out of range: {lon}")
+        msg = f"Longitude out of range: {lon}"
+        raise ValueError(msg)
 
 
 def coerce_tz_datetime(dt: date | datetime | None, tzinfo: ZoneInfo) -> TzDatetime:

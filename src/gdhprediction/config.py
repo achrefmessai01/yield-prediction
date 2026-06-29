@@ -139,6 +139,8 @@ class _Geometry(_Frozen):
 
 
 class IdentityCfg(_TransformCfg):
+    """Config for Identity (indoor temperature == outdoor forecast)."""
+
     kind: Literal["identity"] = "identity"
 
     def build(self) -> TemperatureTransform:
@@ -146,6 +148,8 @@ class IdentityCfg(_TransformCfg):
 
 
 class ShiftCfg(_TransformCfg):
+    """Config for Shift (constant temperature offset)."""
+
     kind: Literal["shift"] = "shift"
     degree_shift: float = Field(
         default=2.0,
@@ -159,6 +163,8 @@ class ShiftCfg(_TransformCfg):
 
 
 class FixedCfg(_TransformCfg):
+    """Config for Fixed (constant indoor setpoint)."""
+
     kind: Literal["fixed"] = "fixed"
     temperature: float = Field(
         default=20.0,
@@ -172,6 +178,8 @@ class FixedCfg(_TransformCfg):
 
 
 class ConstrainedCfg(_TransformCfg):
+    """Config for Constrained (clip outdoor temperature into a range)."""
+
     kind: Literal["constrained"] = "constrained"
     temperature_range: TempRange = (4.5, 35.0)
 
@@ -183,6 +191,8 @@ class ConstrainedCfg(_TransformCfg):
 
 
 class RadCoefficients(_Frozen):
+    """RadiationShift parameters given directly as coefficients."""
+
     route: Literal["coefficients"] = "coefficients"
     degree_shift: float = Field(
         default=0.0,
@@ -208,6 +218,8 @@ class RadCoefficients(_Frozen):
 
 
 class RadConstants(_Geometry):
+    """RadiationShift parameters derived from physical greenhouse constants."""
+
     route: Literal["constants"] = "constants"
 
     def make(self) -> RadiationShift:
@@ -225,6 +237,8 @@ _RadParams = Annotated[RadCoefficients | RadConstants, Field(discriminator="rout
 
 
 class RadiationShiftCfg(_TransformCfg):
+    """Config for RadiationShift (temperature plus linear solar gain)."""
+
     kind: Literal["radiation_shift"] = "radiation_shift"
     params: _RadParams = Field(default_factory=RadCoefficients)
 
@@ -236,6 +250,8 @@ class RadiationShiftCfg(_TransformCfg):
 
 
 class AdaptiveCoefficients(_Frozen):
+    """AdaptiveShift parameters given directly as coefficients."""
+
     route: Literal["coefficients"] = "coefficients"
     base_heat_loss: float = Field(
         gt=0,
@@ -264,6 +280,8 @@ class AdaptiveCoefficients(_Frozen):
 
 
 class AdaptiveConstants(_Geometry):
+    """AdaptiveShift parameters derived from physical greenhouse constants."""
+
     route: Literal["constants"] = "constants"
     ventilation: VentFlow
     heating: HeatingPower
@@ -290,6 +308,8 @@ _AdaptiveParams = Annotated[
 
 
 class AdaptiveShiftCfg(_TransformCfg):
+    """Config for AdaptiveShift (energy-balance heating/venting control)."""
+
     kind: Literal["adaptive_shift"] = "adaptive_shift"
     params: _AdaptiveParams
 
@@ -351,7 +371,7 @@ class GdhPredictionConfig(_Frozen):
         identity = (self.gdh_base, self.temperature_transform.fingerprint())
         payload = json.dumps(identity, separators=(",", ":"))
         key = f"{payload}_v{self._HASH_VERSION}"
-        return hashlib.md5(key.encode("utf-8")).hexdigest()[:8]
+        return hashlib.md5(key.encode("utf-8"), usedforsecurity=False).hexdigest()[:8]
 
 
 class GdhLocalizedPredictionConfig(GdhPredictionConfig):
