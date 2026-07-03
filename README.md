@@ -94,3 +94,16 @@ Parameters:
     - We would see how counts were predicted and how many are measured such that the parameter can be corrected
 - avg_weight
     - Average weight of a ripe fruit
+
+## Testing
+
+```bash
+# Unit tests (offline, no network)
+python -m unittest discover
+
+# Live API contract tests — opt-in, hits the real NASA POWER + BrightSky
+# endpoints to check they are reachable and not returning malformed data
+RUN_LIVE_TESTS=1 python -m unittest discover -p "live_*.py"
+```
+
+The live tests are excluded from the default run (`RUN_LIVE_TESTS` gate plus their `live_*.py` filenames) and run on a daily CI schedule, so a third-party outage never blocks a merge request.
