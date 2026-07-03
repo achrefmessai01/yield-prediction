@@ -1,22 +1,38 @@
 stages:
   - test
 
-# Only build commits pushed to a branch that has an open merge request.
-# Skip entirely when the commit title starts with "wip".
+# Run on merge-request pipelines and on scheduled pipelines (the daily live-API
+# check). Skip entirely when the commit title starts with "wip".
 workflow:
   rules:
     - if: $CI_COMMIT_TITLE =~ /^wip/i
       when: never
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
 
 default:
   image: python:3.12-slim
   interruptible: true  # let a newer push cancel an in-flight run
 
+before_script:
+  - pip install "poetry>=2,<3"
+  # Tests need only runtime deps; skip dev/stubs/notebook (linters, Jupyter).
+  - poetry install --only main
+
+# Fast, hermetic unit tests on every merge request.
 tests:
   stage: test
-  before_script:
-    - pip install "poetry>=2,<3"
-    - poetry install
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
     - poetry run python -m unittest discover
+
+# Scheduled live contract tests against NASA POWER + BrightSky; skipped on MRs.
+live-api-tests:
+  stage: test
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  variables:  # opts the tests into live mode
+    RUN_LIVE_TESTS: "1"
+  script:
+    - poetry run python -m unittest discover -p "live_*.py" -v
