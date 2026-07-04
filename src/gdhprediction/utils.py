@@ -52,6 +52,7 @@ FIRST_YEAR: Final = 2001  # must by later than 2001
 LAST_YEAR: Final = 2025
 CLIMATE_YEARS: Final = 20  # default number of years to use for climate data
 HOURS_PER_YEAR: Final = 8760
+HOURS_PER_DAY = 24
 FEB: Final = 2
 LEAP_DAY: Final = 29
 LAT_STEP: Final = 0.5
@@ -134,6 +135,10 @@ type Float64 = npt.NDArray[np.float64]
 """Plain float64 array (raw temperature/irradiance series)."""
 type Float32 = npt.NDArray[np.float32]
 """Plain float32 array (processed GDH output series)."""
+type UInt8 = npt.NDArray[np.uint8]
+"""Plain uint8 array (up to 255, e.g. month/day/hour)."""
+type Int16 = npt.NDArray[np.int16]
+"""Plain int16 array (up to 32767, e.g. day-of-year)."""
 
 
 # ABC used as a mixin base: subclasses supply dataclass fields, not abstract methods.
@@ -203,42 +208,48 @@ def to_month_day_hour(timestamp: datetime) -> tuple[int, int, int]:
 
 
 def sunshine_to_radiation(  # noqa: PLR0913
-    sunshine_min: float,  # DWD sunshine duration (min/h)
+    sunshine_min: Float32,  # DWD sunshine duration (min/h)
     lat_deg: float,
-    day_of_year: int,
-    hour: int,
+    day_of_year: Int16,
+    hour: UInt8,
     a_s: float = 0.25,
     b_s: float = 0.50,
-) -> float:
+) -> Float32:
     """Estimate surface shortwave irradiance (W/m²) from sunshine duration.
 
+    Vectorised: operates elementwise over the input arrays and returns float32.
     Uses the Angstrom-Prescott equation (FAO-56 parameterisation).
 
     :param sunshine_min: Sunshine duration in minutes per hour (0-60).
     :param lat_deg: Latitude in degrees.
-    :param day_of_year: Day of the year (1-365).
-    :param hour: Hour of the day (0-23).
+    :param day_of_year: Day of the year (1-365), one entry per hour.
+    :param hour: Hour of the day (0-23), one entry per hour.
     :param a_s: Angström-Prescott coefficient for clear-sky radiation (default 0.25).
     :param b_s: Angström-Prescott coefficient for sunshine duration (default 0.50).
-    :return: Estimated surface shortwave irradiance in W/m^2
+    :return: Surface shortwave irradiance (W/m²) as a float32 array.
     """
+    # Cast to avoid underflow-wrap on `hour - 12` / `day_of_year - 81`.
+    doy = np.asarray(day_of_year, dtype=np.float64)
+    hr = np.asarray(hour, dtype=np.float64)
+
     lat = math.radians(lat_deg)
-    b = 2 * math.pi * (day_of_year - 81) / 364
-    declination = math.radians(23.45 * math.sin(b))
+    b = 2 * np.pi * (doy - 81) / 364
+    declination = np.radians(23.45 * np.sin(b))
 
     # Hour angle (solar noon = 0)
-    hour_angle = math.radians(15 * (hour - 12))
+    hour_angle = np.radians(15 * (hr - 12))
 
     # Extraterrestrial radiation (W/m²)
-    cos_zenith = math.sin(lat) * math.sin(declination) + math.cos(lat) * math.cos(
-        declination,
-    ) * math.cos(hour_angle)
-    radiation = max(0.0, 1361.0 * cos_zenith)  # solar constant * cos(zenith)
+    cos_zenith = (
+        math.sin(lat) * np.sin(declination)
+        + math.cos(lat) * np.cos(declination) * np.cos(hour_angle)
+    )
+    radiation = np.maximum(0.0, 1361.0 * cos_zenith)  # solar constant * cos(zenith)
 
     # Fractional sunshine (0-1) from minutes in this hour
     n_fraction = sunshine_min / 60.0
 
-    return radiation * (a_s + b_s * n_fraction)
+    return (radiation * (a_s + b_s * n_fraction)).astype(np.float32)
 
 
 def rh_from(temperature: float, dew_pt: float) -> float:
@@ -294,3 +305,8 @@ def coerce_tz_datetime(dt: date | datetime | None, tzinfo: ZoneInfo) -> TzDateti
     if isinstance(dt, date):
         return TzDatetime(datetime.combine(dt, time.min, tzinfo=tzinfo))
     assert_never(dt)
+
+
+def or_else[T](value: T | None, default: T) -> T:
+    """Return ``value`` if it is not None, else return ``default``."""
+    return value if value is not None else default

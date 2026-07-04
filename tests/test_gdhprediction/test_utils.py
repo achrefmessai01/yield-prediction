@@ -2,7 +2,10 @@ import math
 from dataclasses import dataclass
 from unittest import TestCase
 
-from gdhprediction.utils import FieldsHashMxn, round_sig
+import numpy as np
+
+from gdhprediction.utils import FieldsHashMxn, round_sig, sunshine_to_radiation
+from tests._base import ArrayTestCase
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,3 +119,77 @@ class TestRoundSig(TestCase):
         self.assertEqual(round_sig(0.0, 5), 0.0)
         self.assertTrue(math.isnan(round_sig(math.nan, 5)))
         self.assertEqual(round_sig(math.inf, 5), math.inf)
+
+
+def _radiation_ref(
+    sun: float,
+    lat_deg: float,
+    doy: int,
+    hour: int,
+    a_s: float = 0.25,
+    b_s: float = 0.50,
+) -> float:
+    """Scalar reference: the pre-vectorisation formula, with plain Python ints."""
+    lat = math.radians(lat_deg)
+    b = 2 * math.pi * (doy - 81) / 364
+    dec = math.radians(23.45 * math.sin(b))
+    ha = math.radians(15 * (hour - 12))
+    cz = math.sin(lat) * math.sin(dec) + math.cos(lat) * math.cos(dec) * math.cos(ha)
+    return max(0.0, 1361.0 * cz) * (a_s + b_s * sun / 60.0)
+
+
+class TestSunshineToRadiation(ArrayTestCase):
+    """``sunshine_to_radiation`` is vectorised and dtype-safe.
+
+    The caller passes whole columns: sunshine (float32), day-of-year and hour as
+    the *unsigned* dtypes stored in the arrays. The subtraction inside the formula
+    must not underflow-wrap on those unsigned inputs (the regression this guards).
+    """
+
+    LAT = 52.0
+    # Span the underflow-prone corners: early-year days and morning hours, plus
+    # afternoon / mid-year for good measure.
+    DOY = (1, 30, 80, 172, 200, 355)
+    HOUR = (0, 6, 11, 12, 15, 23)
+    SUN = (0, 15, 30, 45, 60, 20)
+
+    def _call_with_unsigned(self) -> np.ndarray:
+        return sunshine_to_radiation(
+            np.array(self.SUN, dtype=np.float32),
+            self.LAT,
+            np.array(self.DOY, dtype=np.uint16),  # unsigned, as the caller passes
+            np.array(self.HOUR, dtype=np.uint8),  # unsigned, as stored in the dtype
+        )
+
+    def test_matches_scalar_reference(self) -> None:
+        # Vectorised output must equal the old per-element scalar computation.
+        expected = np.array(
+            [
+                _radiation_ref(s, self.LAT, d, h)
+                for s, d, h in zip(self.SUN, self.DOY, self.HOUR, strict=True)
+            ],
+        )
+        self.assertAllClose(self._call_with_unsigned(), expected, atol=1e-3)
+
+    def test_no_underflow_on_unsigned_inputs(self) -> None:
+        # Underflow would produce garbage declination/hour-angle and thus wildly
+        # wrong (or negative) irradiance. Result must be finite and non-negative.
+        out = self._call_with_unsigned()
+        self.assertTrue(np.all(np.isfinite(out)))
+        self.assertTrue(np.all(out >= 0.0))
+
+    def test_returns_float32(self) -> None:
+        self.assertEqual(self._call_with_unsigned().dtype, np.float32)
+
+    def test_shape_preserved(self) -> None:
+        self.assertEqual(self._call_with_unsigned().shape, (len(self.SUN),))
+
+    def test_night_hour_clamps_to_zero(self) -> None:
+        # Midnight in winter: sun below the horizon → cos(zenith) < 0 → clamped 0.
+        out = sunshine_to_radiation(
+            np.array([30.0], dtype=np.float32),
+            self.LAT,
+            np.array([1], dtype=np.uint16),
+            np.array([0], dtype=np.uint8),
+        )
+        self.assertEqual(float(out[0]), 0.0)
